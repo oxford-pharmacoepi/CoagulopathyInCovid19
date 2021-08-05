@@ -1,2 +1,5 @@
 output/*
 CodeToRun_local.R
+.Rproj.user*
+.Rhistory
+postgresql-42.2.18.jar

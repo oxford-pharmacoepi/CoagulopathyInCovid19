@@ -1,10 +1,10 @@
 
-# instantiate (building block) exposure cohorts -----
+# instantiate exposure cohorts -----
 # these are the core cohorts
 # later on, will add locations etc
 cohort.sql<-list.files(here("Cohorts","ExposureCohorts"))
 cohort.sql<-cohort.sql[cohort.sql!="CreateCohortTable.sql"]
-exposure.cohorts<-tibble(id=1:length(cohort.sql),
+exposure.cohorts<-tibble(id=as.integer(1:length(cohort.sql)),
                         file=cohort.sql,
                         name=str_replace(cohort.sql, ".sql", ""))  
 
@@ -49,26 +49,7 @@ exposure.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
 study.cohorts<-exposure.cohorts_db %>% 
   collect()
 
-# diagnosis broad or test positive
-diag_broad_test_positive <- study.cohorts %>% 
-  filter(cohort_definition_id %in% c(1, 4)) %>% 
-  arrange(subject_id, cohort_start_date) %>% 
-  group_by(subject_id) %>% 
-  mutate(seq=1:length(subject_id)) %>% 
-  filter(seq==1) %>% 
-  select(-seq) %>% 
-  mutate(cohort_definition_id=5)
-
-conn <- connect(connectionDetails)
-insertTable(connection=conn,
-            tableName=paste0(results_database_schema, ".",cohortTableExposures),
-            data=diag_broad_test_positive,
-            dropTableIfExists=FALSE,
-            createTable = FALSE,
-            progressBar=TRUE)
-disconnect(conn)
-
-# diagnosis broad or test positive
+# diagnosis narrow or test positive
 diag_narrow_pcr_test_positive <- study.cohorts %>% 
   filter(cohort_definition_id %in% c(2, 3)) %>% 
   arrange(subject_id, cohort_start_date) %>% 
@@ -76,7 +57,7 @@ diag_narrow_pcr_test_positive <- study.cohorts %>%
   mutate(seq=1:length(subject_id)) %>% 
   filter(seq==1) %>% 
   select(-seq) %>% 
-  mutate(cohort_definition_id=6)
+  mutate(cohort_definition_id=5)
 
 conn <- connect(connectionDetails)
 insertTable(connection=conn,
@@ -95,21 +76,20 @@ rm(study.cohorts)
 }
 
 exposure.cohorts<-bind_rows(exposure.cohorts,
-                            tibble(id=5,file=NA,
-                                   name="COVID19 diagnosis broad or positive test"))
-exposure.cohorts<-bind_rows(exposure.cohorts,
-                            tibble(id=6,file=NA,
+                            tibble(id=as.integer(5),
+                                   file=NA,
                                    name="COVID19 diagnosis narrow or PCR positive test"))
 
 # link to table
 exposure.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
                                         results_database_schema,".",
-                                        cohortTableExposures)))
+                                        cohortTableExposures))) %>% 
+  mutate(cohort_definition_id=as.integer(cohort_definition_id)) 
 
 # instantiate outcome cohorts -----
 cohort.sql<-list.files(here("Cohorts","OutcomeCohorts"))
 cohort.sql<-cohort.sql[cohort.sql!="CreateCohortTable.sql"]
-outcome.cohorts<-tibble(id=1:length(cohort.sql),
+outcome.cohorts<-tibble(id=as.integer(1:length(cohort.sql)),
                          file=cohort.sql,
                          name=str_replace(cohort.sql, ".sql", "")) 
 if(create.outcome.cohorts==TRUE){
@@ -150,7 +130,8 @@ disconnect(conn)
 # link to table
 outcome.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
                                         results_database_schema,".",
-                                        cohortTableOutcomes)))
+                                        cohortTableOutcomes)))%>% 
+  mutate(cohort_definition_id=as.integer(cohort_definition_id)) 
 # instantiate comorbidity cohorts ----
 # for those people that are in our exposure cohorts
 
@@ -338,6 +319,6 @@ disconnect(conn)
                                                 ".", cohortTableMedications)))
 }
 # # we now have a table summarising medications
-# cohortTableMedications_db%>% 
-#   group_by(drug_id) %>% 
+# cohortTableMedications_db%>%
+#   group_by(drug_id) %>%
 #   tally()

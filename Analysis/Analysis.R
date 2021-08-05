@@ -8,19 +8,23 @@ exposure.cohorts<-exposure.cohorts %>%
                filter(n>5) %>% 
                select(cohort_definition_id),
              by=c("id"="cohort_definition_id"))  
-exposure.cohorts<-head(exposure.cohorts,1)
 
-# drop any empty outcome cohorts -----
+# drop any outcome cohorts with fewer than 50 people -----
 outcome.cohorts<-outcome.cohorts %>% 
   inner_join(outcome.cohorts_db %>% 
                group_by(cohort_definition_id) %>% 
                tally() %>% 
                collect() %>% 
-               filter(n>5) %>% 
+               filter(n>50) %>% 
                select(cohort_definition_id),
              by=c("id"="cohort_definition_id"))  
-# outcome.cohorts<-outcome.cohorts[c(5,7,12,14,19),] #
-outcome.cohorts<-head(outcome.cohorts,1)
+# for full analysis
+outcome.cohorts<-outcome.cohorts %>% 
+  filter(name %in%
+           c("death",
+             "DVT narrow", "PE", "VTE narrow",
+             "MI", "isc stroke", "MI isc stroke", 
+             "all stroke" , "MACE"))
 
 # Initiate lists to store output ----
 Patient.characteristcis<-list() # to collect tables of characteristics
@@ -64,7 +68,7 @@ if(sum(is.na(Pop$day_of_birth))==0 & sum(is.na(Pop$month_of_birth))==0){
     mutate(age= year(cohort_start_date)-year_of_birth)
 }
 
-# age groups ----
+# age age groups ----
 Pop<-Pop %>% 
   mutate(age_gr=ifelse(age<20,  "<20",
            ifelse(age>=20 &  age<=44,  "20-44",
@@ -83,7 +87,7 @@ table(Pop$age_gr, useNA = "always")
 Pop<-Pop %>% 
   mutate(age_gr2=ifelse(age<=44,  "<=44",
                         ifelse(age>=45 & age<=64,  "45-64",    
-                               ifelse(age>=55, ">=65",
+                               ifelse(age>=65, ">=65",
                                       NA)))) %>% 
   mutate(age_gr2= factor(age_gr2, 
                          levels = c("<=44", "45-64",">=65")))
@@ -219,10 +223,10 @@ for(n in 1:length(drug.codes)){# add each to Pop
     collect() %>% 
     inner_join(Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
-    filter(drug_era_start_date<=(cohort_start_date-days(4))
-           & drug_era_start_date>=(cohort_start_date-days(183)) |
-             drug_era_end_date<=(cohort_start_date-days(4))
-           & drug_era_end_date>=(cohort_start_date-days(183))) %>% 
+    filter((drug_era_start_date<=(cohort_start_date-days(4))
+           & drug_era_start_date>=(cohort_start_date-days(183))) |
+             (drug_era_end_date<=(cohort_start_date-days(4))
+           & drug_era_end_date>=(cohort_start_date-days(183)))) %>% 
     select(person_id) %>% 
     mutate(working.drug=1) %>% 
     distinct()
@@ -436,12 +440,12 @@ summary.characteristics<-bind_rows(summary.characteristics1,
 
 # overall
 Pop.summary.characteristics<-get.summary.characteristics(Pop, "Overall")
-Pop.summary.characteristics.before.august<-get.summary.characteristics(
-  Pop %>% filter(cohort_start_date<as.Date("2020-08-01")) ,
-  "Before August 2020")
-Pop.summary.characteristics.from.august<-get.summary.characteristics(
-  Pop %>% filter(cohort_start_date>=as.Date("2020-08-01")) ,
-  "From August 2020")
+Pop.summary.characteristics.before.Septermber<-get.summary.characteristics(
+  Pop %>% filter(cohort_start_date<as.Date("2020-09-01")) ,
+  "Before Septermber 2020")
+Pop.summary.characteristics.from.Septermber<-get.summary.characteristics(
+  Pop %>% filter(cohort_start_date>=as.Date("2020-09-01")) ,
+  "From Septermber 2020")
 
 
 
@@ -449,12 +453,12 @@ Pop.summary.characteristics.from.august<-get.summary.characteristics(
 Pop.summary.characteristics.with.history<-get.summary.characteristics(
   Pop %>% filter(prior_obs_years>=1),
   "Overall")
-Pop.summary.characteristics.before.august.with.history<-get.summary.characteristics(
-  Pop %>% filter(cohort_start_date<as.Date("2020-08-01")) %>% 
+Pop.summary.characteristics.before.Septermber.with.history<-get.summary.characteristics(
+  Pop %>% filter(cohort_start_date<as.Date("2020-09-01")) %>% 
     filter(prior_obs_years>=1) ,
   "Overall")
-Pop.summary.characteristics.from.august.with.history<-get.summary.characteristics(
-  Pop %>% filter(cohort_start_date>=as.Date("2020-08-01")) %>% filter(prior_obs_years>=1) ,
+Pop.summary.characteristics.from.Septermber.with.history<-get.summary.characteristics(
+  Pop %>% filter(cohort_start_date>=as.Date("2020-09-01")) %>% filter(prior_obs_years>=1) ,
   "Overall")
 
 
@@ -553,8 +557,8 @@ for(j in 1:length(outcome.cohorts$id)){ # for each outcome of interest
                 select(person_id) %>% 
                 rename("subject_id"="person_id")) %>% 
      tally() %>% 
-     pull()==0){
-    print(paste0("No occurrences of ", working.outcome.name, " among study population"))
+     pull()<5){
+    print(paste0("Less than five occurrences of ", working.outcome.name, " among study population"))
   } else {
     # continue only if occurrences of outcome
     
@@ -601,7 +605,7 @@ for(j in 1:length(outcome.cohorts$id)){ # for each outcome of interest
         filter(cohort_start_date<= (Pop_cohort_start_date+days(90))) 
     
 
-    if(nrow(f_u.outcome)>=1){ 
+    if(nrow(f_u.outcome)>=5){ 
       f_u.outcome<-f_u.outcome %>% 
         group_by(subject_id) %>%
         arrange(cohort_start_date) %>% 
@@ -631,11 +635,11 @@ working.Pop<-working.Pop %>%
         mutate(f_u.outcome.days=as.numeric(difftime(f_u.outcome_date,
                                                     cohort_start_date, 
                                                     units="days")))
-working.Pop %>%
-        group_by(f_u.outcome) %>%
-        summarise(min(f_u.outcome.days),
-                  median(f_u.outcome.days),
-                  max(f_u.outcome.days))
+# working.Pop %>%
+#         group_by(f_u.outcome) %>%
+#         summarise(min(f_u.outcome.days),
+#                   median(f_u.outcome.days),
+#                   max(f_u.outcome.days))
       
 # require minimum of 1 day of time at risk ----
 working.Pop<-working.Pop %>% 
@@ -667,17 +671,17 @@ working.Pop<-working.Pop %>%
   mutate(age_gr= factor(age_gr, 
                         levels = c("<20","20-44","45-54", "55-64",
                                    "65-74", "75-84",">=85"))) 
-table(working.Pop$age_gr, useNA = "always")
+#table(working.Pop$age_gr, useNA = "always")
       
 # wider age groups
 working.Pop<-working.Pop %>% 
         mutate(age_gr2=ifelse(age<=44,  "<=44",
                               ifelse(age>=45 & age<=64,  "45-64",    
-                                     ifelse(age>=55, ">=65",
+                                     ifelse(age>=65, ">=65",
                                             NA)))) %>% 
         mutate(age_gr2= factor(age_gr2, 
                                levels = c("<=44", "45-64",">=65")))
-table(working.Pop$age_gr2, useNA = "always")
+#table(working.Pop$age_gr2, useNA = "always")
       
 # another alternative set of age groups
 working.Pop<-working.Pop %>% 
@@ -693,7 +697,7 @@ working.Pop<-working.Pop %>%
         mutate(age_gr3= factor(age_gr3, 
                                levels = c("<20", "20-29","30-39","40-49", "50-59",
                                           "60-69", "70-79",">=80")))
-table(working.Pop$age_gr3, useNA = "always")
+# table(working.Pop$age_gr3, useNA = "always")
 
       
 # add prior observation time -----
@@ -791,10 +795,10 @@ for(n in 1:length(drug.codes)){# add each to Pop
     collect() %>% 
     inner_join(working.Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
-    filter(drug_era_start_date<=(cohort_start_date-days(4))
-           & drug_era_start_date>=(cohort_start_date-days(183)) |
-             drug_era_end_date<=(cohort_start_date-days(4))
-           & drug_era_end_date>=(cohort_start_date-days(183))) %>% 
+    filter((drug_era_start_date<=(cohort_start_date-days(4))
+           & drug_era_start_date>=(cohort_start_date-days(183))) |
+             (drug_era_end_date<=(cohort_start_date-days(4))
+           & drug_era_end_date>=(cohort_start_date-days(183)))) %>% 
     select(person_id) %>% 
     mutate(working.drug=1) %>% 
     distinct()
@@ -881,12 +885,12 @@ working.Pop.w.outcome<-working.Pop %>% filter(f_u.outcome==1)
 Pop.summary.characteristics<-left_join(Pop.summary.characteristics,
                                              get.summary.characteristics(working.Pop.w.outcome, working.outcome.name),
                                              by="var")
-Pop.summary.characteristics.before.august<-left_join(Pop.summary.characteristics.before.august,
-                                             get.summary.characteristics(working.Pop.w.outcome %>% filter(cohort_start_date<as.Date("2020-08-01")),
+Pop.summary.characteristics.before.Septermber<-left_join(Pop.summary.characteristics.before.Septermber,
+                                             get.summary.characteristics(working.Pop.w.outcome %>% filter(cohort_start_date<as.Date("2020-09-01")),
                                                                          working.outcome.name),
                                              by="var")      
-Pop.summary.characteristics.from.august<-left_join(Pop.summary.characteristics.from.august,
-                                                     get.summary.characteristics(working.Pop.w.outcome %>% filter(cohort_start_date>=as.Date("2020-08-01")),
+Pop.summary.characteristics.from.Septermber<-left_join(Pop.summary.characteristics.from.Septermber,
+                                                     get.summary.characteristics(working.Pop.w.outcome %>% filter(cohort_start_date>=as.Date("2020-09-01")),
                                                                                  working.outcome.name),
                                                      by="var")           
       
@@ -896,14 +900,14 @@ Pop.summary.characteristics.with.history<-left_join(Pop.summary.characteristics.
                                                           get.summary.characteristics(working.Pop.w.outcome %>% 
                                                                                         filter(prior_obs_years>=1), working.outcome.name),
                                                           by="var")
-Pop.summary.characteristics.before.august.with.history<-left_join(Pop.summary.characteristics.before.august.with.history,
+Pop.summary.characteristics.before.Septermber.with.history<-left_join(Pop.summary.characteristics.before.Septermber.with.history,
                                                      get.summary.characteristics(working.Pop.w.outcome %>% 
-                                                                                   filter(prior_obs_years>=1) %>% filter(cohort_start_date<as.Date("2020-08-01")),
+                                                                                   filter(prior_obs_years>=1) %>% filter(cohort_start_date<as.Date("2020-09-01")),
                                                                                  working.outcome.name),
                                                      by="var")      
-Pop.summary.characteristics.from.august.with.history<-left_join(Pop.summary.characteristics.from.august.with.history,
+Pop.summary.characteristics.from.Septermber.with.history<-left_join(Pop.summary.characteristics.from.Septermber.with.history,
                                                    get.summary.characteristics(working.Pop.w.outcome  %>% 
-                                                                                 filter(prior_obs_years>=1)%>% filter(cohort_start_date>=as.Date("2020-08-01")),
+                                                                                 filter(prior_obs_years>=1)%>% filter(cohort_start_date>=as.Date("2020-09-01")),
                                                                                working.outcome.name),
                                                    by="var")   
 
@@ -934,14 +938,14 @@ quantile(working.Pop$death.days, na.rm=TRUE)
 # death status variable
 working.Pop<-working.Pop %>% 
   mutate(death_status=ifelse(!is.na(death_date), 1,0))
-prop.table(table(working.Pop$death_status, useNA = "always"))
+# prop.table(table(working.Pop$death_status, useNA = "always"))
 
 # 
 working.Pop<-working.Pop %>% 
   mutate(death_date=if_else(!is.na(death_date),death_date,f_u.outcome_date))
 working.Pop$death.days<-as.numeric(difftime(working.Pop$death_date,
                                working.Pop$cohort_start_date, units="days"))
-quantile(working.Pop$death.days, na.rm=TRUE)
+# quantile(working.Pop$death.days, na.rm=TRUE)
 
 # competing risk variable
 working.Pop <- working.Pop %>% 
@@ -950,7 +954,7 @@ working.Pop <- working.Pop %>%
 working.Pop <- working.Pop %>% 
                    mutate(w.outcome_or_mortality.event=ifelse(f_u.outcome==0, 
                                        2*death_status, 1))
-table(working.Pop$w.outcome_or_mortality.event)
+# table(working.Pop$w.outcome_or_mortality.event)
 working.Pop <- working.Pop %>%
                   mutate(w.outcome_or_mortality.event=
                         factor(w.outcome_or_mortality.event,
@@ -1495,17 +1499,17 @@ Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","No.p
                        value.working.outcome=working.outcome,
                        value.working.outcome.name=working.outcome.name,
                        value.working.study.cohort=working.study.cohort)
-Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","No.prior.obs", ";", "before.august")]]<-
-  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date<as.Date("2020-08-01")) ,
+Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","No.prior.obs", ";", "before.Septermber")]]<-
+  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date<as.Date("2020-09-01")) ,
                      value.prior.obs.required="No",
-                     value.pop.type="Before August 2020",
+                     value.pop.type="Before Septermber 2020",
                      value.working.outcome=working.outcome,
                      value.working.outcome.name=working.outcome.name,
                      value.working.study.cohort=working.study.cohort)
-Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","No.prior.obs", ";", "after.august")]]<-
-  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date>=as.Date("2020-08-01")) ,
+Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","No.prior.obs", ";", "after.Septermber")]]<-
+  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date>=as.Date("2020-09-01")) ,
                      value.prior.obs.required="No",
-                     value.pop.type="From August 2020",
+                     value.pop.type="From Septermber 2020",
                      value.working.outcome=working.outcome,
                      value.working.outcome.name=working.outcome.name,
                      value.working.study.cohort=working.study.cohort)
@@ -1519,19 +1523,19 @@ Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","Prio
                      value.working.outcome=working.outcome,
                      value.working.outcome.name=working.outcome.name,
                      value.working.study.cohort=working.study.cohort)
-Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","Prior.obs", ";", "before.august")]]<-
-  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date<as.Date("2020-08-01")) %>% 
+Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","Prior.obs", ";", "before.Septermber")]]<-
+  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date<as.Date("2020-09-01")) %>% 
                        filter(prior_obs_years>=1) ,
                      value.prior.obs.required="Yes",
-                     value.pop.type="Before August 2020",
+                     value.pop.type="Before Septermber 2020",
                      value.working.outcome=working.outcome,
                      value.working.outcome.name=working.outcome.name,
                      value.working.study.cohort=working.study.cohort)
-Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","Prior.obs", ";", "after.august")]]<-
-  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date>=as.Date("2020-08-01")) %>% 
+Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","Prior.obs", ";", "after.Septermber")]]<-
+  get.Surv.summaries(working.data=working.Pop %>% filter(cohort_start_date>=as.Date("2020-09-01")) %>% 
                        filter(prior_obs_years>=1) ,
                      value.prior.obs.required="Yes",
-                     value.pop.type="From August 2020",
+                     value.pop.type="From Septermber 2020",
                      value.working.outcome=working.outcome,
                      value.working.outcome.name=working.outcome.name,
                      value.working.study.cohort=working.study.cohort)
@@ -1554,16 +1558,17 @@ m.age.rcs.3<-cph(Surv(f_u.outcome.days, f_u.outcome) ~ rcs(age,3),
        data = working.data)
 age.fit<-ifelse(AIC(m.age.linear)<=AIC(m.age.rcs.3),
        "age", "rcs(age,3)")
-# interaction between age and sex
-age.gender.interaction<-anova(cph(Surv(f_u.outcome.days, f_u.outcome) ~ age_gr3*gender,
-       surv=TRUE,x=TRUE,y=TRUE,
-       data = working.data))
-age.gender.interaction<-as.character(ifelse(tail(age.gender.interaction[,3],1)<0.005, "Yes", "No"))
+# # interaction between age and sex
+# age.gender.interaction<-anova(cph(Surv(f_u.outcome.days, f_u.outcome) ~ age_gr3*gender,
+#        surv=TRUE,x=TRUE,y=TRUE,
+#        data = working.data))
+# age.gender.interaction<-as.character(ifelse(tail(age.gender.interaction[,3],1)<0.005, "Yes", "No"))
 
-age.gender.f<-ifelse(age.gender.interaction=="Yes", paste0(age.fit, "*gender"),
-                     paste0(age.fit, "+ gender"))
+# age.gender.f<-ifelse(age.gender.interaction=="Yes", paste0(age.fit, "*gender"),
+#                      paste0(age.fit, "+ gender")
+age.gender.f<-paste0(age.fit, "+ gender")
 
- if(mortality.captured==TRUE & working.outcome.name!="death"){
+if(mortality.captured==TRUE & working.outcome.name!="death"){
 # same again for competing risk of death
 m.age.linear.comp.risk<-cph(Surv(f_u.outcome.days, f_u.outcome) ~ age,
        surv=TRUE,x=TRUE,y=TRUE,
@@ -1573,29 +1578,40 @@ m.age.rcs.3.comp.risk<-cph(Surv(f_u.outcome.days, f_u.outcome) ~ rcs(age,3),
        data = working.r.2.data)
 age.fit.comp.risk<-ifelse(AIC(m.age.linear.comp.risk)<=AIC(m.age.rcs.3.comp.risk),
        "age", "rcs(age,3)")
-# interaction between age and sex
-age.gender.interaction.comp.risk<-anova(cph(Surv(f_u.outcome.days, f_u.outcome) ~ age_gr3*gender,
-       surv=TRUE,x=TRUE,y=TRUE,
-       data = working.r.2.data))
-age.gender.interaction.comp.risk<-as.character(ifelse(tail(age.gender.interaction.comp.risk[,3],1)<0.005, "Yes", "No"))
+# # interaction between age and sex
+# age.gender.interaction.comp.risk<-anova(cph(Surv(f_u.outcome.days, f_u.outcome) ~ age_gr3*gender,
+#        surv=TRUE,x=TRUE,y=TRUE,
+#        data = working.r.2.data))
+# age.gender.interaction.comp.risk<-as.character(ifelse(tail(age.gender.interaction.comp.risk[,3],1)<0.005, "Yes", "No"))
 
-age.gender.f.comp.risk<-ifelse(age.gender.interaction.comp.risk=="Yes", paste0(age.fit.comp.risk, "*gender"),
-                     paste0(age.fit.comp.risk, "+ gender"))
+# age.gender.f.comp.risk<-ifelse(age.gender.interaction.comp.risk=="Yes", paste0(age.fit.comp.risk, "*gender"),
+#                      paste0(age.fit.comp.risk, "+ gender"))
+age.gender.f.comp.risk<- paste0(age.fit.comp.risk, "+ gender")
  }
 
-# 1) age and gender
+# 1) age, stratified by gender
 # without competing risk
-m.age.gender<-cph(as.formula(paste("Surv(f_u.outcome.days, f_u.outcome)~", age.gender.f)),
+m.age.male<-cph(as.formula(paste("Surv(f_u.outcome.days, f_u.outcome)~", age.fit)),
        surv=TRUE,x=TRUE,y=TRUE,
-       data = working.data)
+       data = working.data %>% filter(gender=="Male"))
+m.age.female<-cph(as.formula(paste("Surv(f_u.outcome.days, f_u.outcome)~", age.fit)),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = working.data %>% filter(gender=="Female"))
 if(mortality.captured==TRUE & working.outcome.name!="death"){
 # with competing risk
-m.age.gender.cr.1<-cph(as.formula(paste("Surv(time, status)~", age.gender.f)),
+m.age.male.cr.1<-cph(as.formula(paste("Surv(time, status)~", age.fit)),
        surv=TRUE,x=TRUE,y=TRUE,
-       data = working.r.1.data)
-m.age.gender.cr.2<-cph(as.formula(paste("Surv(time, status)~", age.gender.f.comp.risk)),
+       data = working.r.1.data %>% filter(gender=="Male"))
+m.age.female.cr.1<-cph(as.formula(paste("Surv(time, status)~", age.fit)),
        surv=TRUE,x=TRUE,y=TRUE,
-       data = working.r.2.data)
+       data = working.r.1.data %>% filter(gender=="Female"))
+
+m.age.male.cr.2<-cph(as.formula(paste("Surv(time, status)~", age.fit.comp.risk)),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = working.r.2.data %>% filter(gender=="Male"))
+m.age.female.cr.2<-cph(as.formula(paste("Surv(time, status)~", age.fit.comp.risk)),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = working.r.2.data %>% filter(gender=="Female"))
 }
 
 # summarise relative hazard ratios for age
@@ -1605,18 +1621,18 @@ ref.age<-65
 working.summary.age.male<-list()
 for(age.i in 1:length(ages)){
 # w/o competing risk
-working.summary.age.male[[paste0(age.i, ".overall")]]<-head(as.data.frame(summary(m.age.gender, 
-        age=c(65,ages[age.i]), gender="Male",
+working.summary.age.male[[paste0(age.i, ".overall")]]<-head(as.data.frame(summary(m.age.male, 
+        age=c(65,ages[age.i]),
         antilog=FALSE)),1)   %>% 
   mutate(model.type="overall")
 if(mortality.captured==TRUE & working.outcome.name!="death"){
 # w competing risk
-working.summary.age.male[[paste0(age.i, ".cr.1")]]<-head(as.data.frame(summary(m.age.gender.cr.1, 
-        age=c(65,ages[age.i]), gender="Male",
+working.summary.age.male[[paste0(age.i, ".cr.1")]]<-head(as.data.frame(summary(m.age.male.cr.1, 
+        age=c(65,ages[age.i]),
         antilog=FALSE)),1)  %>% 
   mutate(model.type="cause-specific;outcome.of.interest")
-working.summary.age.male[[paste0(age.i, ".cr.2")]]<-head(as.data.frame(summary(m.age.gender.cr.2, 
-        age=c(65,ages[age.i]), gender="Male",
+working.summary.age.male[[paste0(age.i, ".cr.2")]]<-head(as.data.frame(summary(m.age.male.cr.2, 
+        age=c(65,ages[age.i]),
         antilog=FALSE)),1)  %>% 
   mutate(model.type="cause-specific;death")
 }}
@@ -1633,18 +1649,18 @@ working.summary.age.male<-bind_rows(working.summary.age.male) %>%
 working.summary.age.female<-list()
 for(age.i in 1:length(ages)){
 # w/o competing risk
-working.summary.age.female[[paste0(age.i, ".overall")]]<-head(as.data.frame(summary(m.age.gender, 
-        age=c(65,ages[age.i]), gender="Female",
+working.summary.age.female[[paste0(age.i, ".overall")]]<-head(as.data.frame(summary(m.age.female, 
+        age=c(65,ages[age.i]),
         antilog=FALSE)),1)   %>% 
   mutate(model.type="overall")
 if(mortality.captured==TRUE & working.outcome.name!="death"){
 # w competing risk
-working.summary.age.female[[paste0(age.i, ".cr.1")]]<-head(as.data.frame(summary(m.age.gender.cr.1, 
-        age=c(65,ages[age.i]), gender="Female",
+working.summary.age.female[[paste0(age.i, ".cr.1")]]<-head(as.data.frame(summary(m.age.female.cr.1, 
+        age=c(65,ages[age.i]),
         antilog=FALSE)),1)  %>% 
   mutate(model.type="cause-specific;outcome.of.interest")
-working.summary.age.female[[paste0(age.i, ".cr.2")]]<-head(as.data.frame(summary(m.age.gender.cr.2, 
-        age=c(65,ages[age.i]), gender="Female",
+working.summary.age.female[[paste0(age.i, ".cr.2")]]<-head(as.data.frame(summary(m.age.female.cr.2, 
+        age=c(65,ages[age.i]),
         antilog=FALSE)),1)  %>% 
   mutate(model.type="cause-specific;death")
 }}
@@ -1667,9 +1683,111 @@ working.summary.age<-bind_rows(working.summary.age.male, working.summary.age.fem
 #   geom_line(aes(rel.age, hr.low, colour=gender), linetype="dashed")+
 #   geom_line(aes(rel.age, hr.high, colour=gender), linetype="dashed")
 
+# 2 gender
+get.models.gender<-function(){
+# unadjusted 
+m.unadj<-cph(as.formula(paste("Surv(f_u.outcome.days, f_u.outcome)~","gender")),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = working.data)
+if(mortality.captured==TRUE & working.outcome.name!="death"){
+m.unadj.cr.1<-cph(as.formula(paste("Surv(time, status)~","gender")),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = working.r.1.data)
+m.unadj.cr.2<-cph(as.formula(paste("Surv(time, status)~","gender")),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = r.2)}
+# adjusted for age
+m.adj<-cph(as.formula(paste("Surv(f_u.outcome.days, f_u.outcome)~","gender", "+",  age.fit)),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = working.data)
+if(mortality.captured==TRUE & working.outcome.name!="death"){
+m.adj.cr.1<-cph(as.formula(paste("Surv(time, status)~","gender", "+",  age.fit)),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = working.r.1.data)
+m.adj.cr.2<-cph(as.formula(paste("Surv(time, status)~","gender", "+",  age.fit.comp.risk)),
+       surv=TRUE,x=TRUE,y=TRUE,
+       data = r.2)}
 
 
 
+
+if(mortality.captured==TRUE & working.outcome.name!="death"){
+
+bind_rows(
+head(as.data.frame(summary(m.unadj, gender='Female', antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>%  
+  mutate(model="Unadjusted") %>% 
+  mutate(model.type="overall"),
+head(as.data.frame(summary(m.unadj.cr.1, gender='Female', antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>%  
+  mutate(model="Unadjusted") %>% 
+  mutate(model.type="cause-specific;outcome.of.interest"),
+head(as.data.frame(summary(m.unadj.cr.2, gender='Female', antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>%  
+  mutate(model="Unadjusted") %>% 
+  mutate(model.type="cause-specific;death"),
+
+tail(as.data.frame(summary(m.adj, gender='Female', antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>%  
+  mutate(model="Adjusted") %>% 
+  mutate(model.type="overall"),
+tail(as.data.frame(summary(m.adj.cr.1, gender='Female', antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>% 
+  mutate(model="Adjusted") %>%
+  mutate(model.type="cause-specific;outcome.of.interest"),
+tail(as.data.frame(summary(m.adj.cr.2, gender='Female', antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>% 
+  mutate(model="Adjusted") %>%
+  mutate(model.type="cause-specific;death")
+) %>% 
+  mutate(var="Sex (Male:Female)")
+} else {
+    
+bind_rows(
+head(as.data.frame(summary(m.unadj, gender='Female', antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>%  
+  mutate(model="Unadjusted") %>% 
+  mutate(model.type="overall"),
+
+tail(as.data.frame(summary(m.adj, gender='Female',antilog=FALSE)),1) %>% 
+  mutate(hr=exp(Effect),
+         hr.low=exp(`Lower 0.95`),
+         hr.high=exp(`Upper 0.95`)) %>% 
+  select(hr, hr.low, hr.high)%>%  
+  mutate(model="Adjusted") %>% 
+  mutate(model.type="overall")
+) %>% 
+ mutate(var="Sex (Male:Female)")
+} 
+
+
+}
+working.summary.gender<-get.models.gender()
+
+
+# 3 other exposures of interest
+# unadjusted and adjusted for age and gender (or in the case of gender, just age)
 get.models.exposures<-function(var){
   if(nrow(working.data %>% 
     filter(!!as.name(var)==1))>5){
@@ -1683,7 +1801,8 @@ m.unadj.cr.1<-cph(as.formula(paste("Surv(time, status)~",{{var}})),
        data = working.r.1.data)
 m.unadj.cr.2<-cph(as.formula(paste("Surv(time, status)~",{{var}})),
        surv=TRUE,x=TRUE,y=TRUE,
-       data = r.2)}
+       data = r.2)
+}
 m.adj<-cph(as.formula(paste("Surv(f_u.outcome.days, f_u.outcome)~",{{var}}, "+",  age.gender.f)),
        surv=TRUE,x=TRUE,y=TRUE,
        data = working.data)
@@ -1693,7 +1812,9 @@ m.adj.cr.1<-cph(as.formula(paste("Surv(time, status)~",{{var}}, "+",  age.gender
        data = working.r.1.data)
 m.adj.cr.2<-cph(as.formula(paste("Surv(time, status)~",{{var}}, "+",  age.gender.f.comp.risk)),
        surv=TRUE,x=TRUE,y=TRUE,
-       data = working.r.2.data)}
+       iter.max=250,
+       data = working.r.2.data)
+}
 
 if(mortality.captured==TRUE & working.outcome.name!="death"){
 
@@ -1725,21 +1846,21 @@ head(as.data.frame(summary(m.adj, antilog=FALSE)),1) %>%
          hr.low=exp(`Lower 0.95`),
          hr.high=exp(`Upper 0.95`)) %>% 
   select(hr, hr.low, hr.high)%>%  
-  mutate(model="Adjusted for age and gender") %>% 
+  mutate(model="Adjusted") %>% 
   mutate(model.type="overall"),
 head(as.data.frame(summary(m.adj.cr.1, antilog=FALSE)),1) %>% 
   mutate(hr=exp(Effect),
          hr.low=exp(`Lower 0.95`),
          hr.high=exp(`Upper 0.95`)) %>% 
   select(hr, hr.low, hr.high)%>% 
-  mutate(model="Adjusted for age and gender") %>%
+  mutate(model="Adjusted") %>%
   mutate(model.type="cause-specific;outcome.of.interest"),
 head(as.data.frame(summary(m.adj.cr.2, antilog=FALSE)),1) %>% 
   mutate(hr=exp(Effect),
          hr.low=exp(`Lower 0.95`),
          hr.high=exp(`Upper 0.95`)) %>% 
   select(hr, hr.low, hr.high)%>% 
-  mutate(model="Adjusted for age and gender") %>%
+  mutate(model="Adjusted") %>%
   mutate(model.type="cause-specific;death")
 ) %>% 
   mutate(var={{var}})
@@ -1759,7 +1880,7 @@ head(as.data.frame(summary(m.adj, antilog=FALSE)),1) %>%
          hr.low=exp(`Lower 0.95`),
          hr.high=exp(`Upper 0.95`)) %>% 
   select(hr, hr.low, hr.high)%>%  
-  mutate(model="Adjusted for age and gender") %>% 
+  mutate(model="Adjusted") %>% 
   mutate(model.type="overall")
 ) %>% 
   mutate(var={{var}})  
@@ -1774,30 +1895,32 @@ head(as.data.frame(summary(m.adj, antilog=FALSE)),1) %>%
 
 }
 
-# get.models.exposures("autoimmune_disease.all.history"),
-# get.models.exposures("antiphospholipid_syndrome.all.history"),
-# get.models.exposures("thrombophilia.all.history"),
-# get.models.exposures("tamoxifen"),
-# get.models.exposures("coxibs"),
-
 working.summary.exposures<-list()
-working.summary.exposures[[1]]<-get.models.exposures("atrial_fibrillation.all.history")
-working.summary.exposures[[2]]<-get.models.exposures("malignant_neoplastic_disease.all.history")
-working.summary.exposures[[3]]<-get.models.exposures("diabetes_mellitus.all.history")
-working.summary.exposures[[4]]<-get.models.exposures("obesity.all.history")
-working.summary.exposures[[5]]<-get.models.exposures("renal_impairment.all.history")
-working.summary.exposures[[6]]<-get.models.exposures("cond.comp")
-working.summary.exposures[[7]]<-get.models.exposures("antiinflamatory_and_antirheumatic")
-working.summary.exposures[[8]]<-get.models.exposures("corticosteroids")
-working.summary.exposures[[9]]<-get.models.exposures("hormonal_contraceptives")
-working.summary.exposures[[10]]<-get.models.exposures("sex_hormones_modulators")
-working.summary.exposures[[11]]<-get.models.exposures("drug.comp")  
+
+working.summary.exposures[[1]]<-get.models.exposures("asthma.all.history")
+working.summary.exposures[[2]]<-get.models.exposures("diabetes_mellitus.all.history")
+working.summary.exposures[[3]]<-get.models.exposures("malignant_neoplastic_disease.all.history")
+working.summary.exposures[[4]]<-get.models.exposures("heart_disease.all.history")
+working.summary.exposures[[5]]<-get.models.exposures("hypertensive_disorder.all.history")
+working.summary.exposures[[6]]<-get.models.exposures("obesity.all.history")
+working.summary.exposures[[7]]<-get.models.exposures("renal_impairment.all.history")
+working.summary.exposures[[8]]<-get.models.exposures("cond.comp")
+
+working.summary.exposures[[9]]<-get.models.exposures("antiinflamatory_and_antirheumatic")
+working.summary.exposures[[10]]<-get.models.exposures("antithrombotic")
+working.summary.exposures[[11]]<-get.models.exposures("corticosteroids")
+working.summary.exposures[[12]]<-get.models.exposures("drug.comp") 
 working.summary.exposures<- bind_rows(working.summary.exposures)
 
+
 row.names(working.summary.age)<-1:nrow(working.summary.age)
+row.names(working.summary.gender)<-1:nrow(working.summary.gender)
 row.names(working.summary.exposures)<-1:nrow(working.summary.exposures)
 
-bind_rows(working.summary.age, working.summary.exposures)
+bind_rows(working.summary.age,
+          working.summary.gender,
+          working.summary.exposures)
+
 }
 
 
@@ -1814,31 +1937,31 @@ Model.estimates[[paste0(working.study.cohort,
 
 
 if(nrow(working.Pop %>% 
-        filter(cohort_start_date<as.Date("2020-08-01")) %>% 
+        filter(cohort_start_date<as.Date("2020-09-01")) %>% 
         filter(f_u.outcome==1))>=100){  
 Model.estimates[[paste0(working.study.cohort,
                                    ";",working.outcome.name,";",
                                    "No.prior.obs", ";",
-                                   "Before august")]]<-get.models(working.Pop %>% filter(cohort_start_date<as.Date("2020-08-01")),
-                                                            r.1 %>% filter(cohort_start_date<as.Date("2020-08-01")),
-                                                            r.2 %>% filter(cohort_start_date<as.Date("2020-08-01"))) %>% 
+                                   "Before Septermber")]]<-get.models(working.Pop %>% filter(cohort_start_date<as.Date("2020-09-01")),
+                                                            r.1 %>% filter(cohort_start_date<as.Date("2020-09-01")),
+                                                            r.2 %>% filter(cohort_start_date<as.Date("2020-09-01"))) %>% 
   mutate(prior.obs.required="No",
-         pop.type="Before August 2020",
+         pop.type="Before Septermber 2020",
          working.outcome=working.outcome,
          working.outcome.name=working.outcome.name,
          working.study.cohort=working.study.cohort)}
 
 if(nrow(working.Pop %>% 
-        filter(cohort_start_date>=as.Date("2020-08-01")) %>% 
+        filter(cohort_start_date>=as.Date("2020-09-01")) %>% 
         filter(f_u.outcome==1))>=100){ 
 Model.estimates[[paste0(working.study.cohort,
                                    ";",working.outcome.name,";",
                                    "No.prior.obs", ";",
-                                   "From august")]]<-get.models(working.Pop %>% filter(cohort_start_date>=as.Date("2020-08-01")),
-                                                            r.1 %>% filter(cohort_start_date>=as.Date("2020-08-01")),
-                                                            r.2 %>% filter(cohort_start_date>=as.Date("2020-08-01"))) %>% 
+                                   "From Septermber")]]<-get.models(working.Pop %>% filter(cohort_start_date>=as.Date("2020-09-01")),
+                                                            r.1 %>% filter(cohort_start_date>=as.Date("2020-09-01")),
+                                                            r.2 %>% filter(cohort_start_date>=as.Date("2020-09-01"))) %>% 
   mutate(prior.obs.required="No",
-         pop.type="From August 2020",
+         pop.type="From Septermber 2020",
          working.outcome=working.outcome,
          working.outcome.name=working.outcome.name,
          working.study.cohort=working.study.cohort)}
@@ -1858,38 +1981,38 @@ Model.estimates[[paste0(working.study.cohort,
          working.outcome.name=working.outcome.name,
          working.study.cohort=working.study.cohort)}
 
-if(nrow(working.Pop %>% filter(cohort_start_date<as.Date("2020-08-01")) %>% 
+if(nrow(working.Pop %>% filter(cohort_start_date<as.Date("2020-09-01")) %>% 
         filter(prior_obs_years>=1)%>% 
         filter(f_u.outcome==1))>=100){  
 Model.estimates[[paste0(working.study.cohort,
                                    ";",working.outcome.name,";",
                                    "prior.obs", ";",
-                                   "Before august")]]<-get.models(working.Pop %>% filter(cohort_start_date<as.Date("2020-08-01")) %>% 
+                                   "Before Septermber")]]<-get.models(working.Pop %>% filter(cohort_start_date<as.Date("2020-09-01")) %>% 
                                                                    filter(prior_obs_years>=1),
-                                                            r.1 %>% filter(cohort_start_date<as.Date("2020-08-01")) %>% 
+                                                            r.1 %>% filter(cohort_start_date<as.Date("2020-09-01")) %>% 
                                                                    filter(prior_obs_years>=1),
-                                                             r.2 %>% filter(cohort_start_date<as.Date("2020-08-01")) %>% 
+                                                             r.2 %>% filter(cohort_start_date<as.Date("2020-09-01")) %>% 
                                                                    filter(prior_obs_years>=1)) %>% 
   mutate(prior.obs.required="Yes",
-         pop.type="Before August 2020",
+         pop.type="Before Septermber 2020",
          working.outcome=working.outcome,
          working.outcome.name=working.outcome.name,
          working.study.cohort=working.study.cohort)}
 
-if(nrow(working.Pop %>% filter(cohort_start_date>=as.Date("2020-08-01")) %>% 
+if(nrow(working.Pop %>% filter(cohort_start_date>=as.Date("2020-09-01")) %>% 
         filter(prior_obs_years>=1)%>% 
         filter(f_u.outcome==1))>=100){
 Model.estimates[[paste0(working.study.cohort,
                                    ";",working.outcome.name,";",
                                    "prior.obs", ";",
-                                   "From august")]]<-get.models(working.Pop %>% filter(cohort_start_date>=as.Date("2020-08-01")) %>% 
+                                   "From Septermber")]]<-get.models(working.Pop %>% filter(cohort_start_date>=as.Date("2020-09-01")) %>% 
                                                                    filter(prior_obs_years>=1),
-                                                            r.1 %>% filter(cohort_start_date>=as.Date("2020-08-01")) %>% 
+                                                            r.1 %>% filter(cohort_start_date>=as.Date("2020-09-01")) %>% 
                                                                    filter(prior_obs_years>=1),
-                                                            r.2 %>% filter(cohort_start_date>=as.Date("2020-08-01")) %>% 
+                                                            r.2 %>% filter(cohort_start_date>=as.Date("2020-09-01")) %>% 
                                                                    filter(prior_obs_years>=1)) %>% 
   mutate(prior.obs.required="Yes",
-         pop.type="From August 2020",
+         pop.type="From Septermber 2020",
          working.outcome=working.outcome,
          working.outcome.name=working.outcome.name,
          working.study.cohort=working.study.cohort)}
@@ -1906,13 +2029,13 @@ pat.ch[[1]]<-Pop.summary.characteristics %>%
     mutate(prior.obs.required="No") %>% 
     mutate(pop=working.study.cohort) %>% 
     mutate(age_gr2="All")
-pat.ch[[2]]<-Pop.summary.characteristics.before.august %>%
-  mutate(pop.type="Before August 2020") %>% 
+pat.ch[[2]]<-Pop.summary.characteristics.before.Septermber %>%
+  mutate(pop.type="Before Septermber 2020") %>% 
   mutate(prior.obs.required="No") %>% 
   mutate(pop=working.study.cohort) %>% 
   mutate(age_gr2="All")
-pat.ch[[3]]<-Pop.summary.characteristics.from.august %>%
-  mutate(pop.type="From August 2020") %>% 
+pat.ch[[3]]<-Pop.summary.characteristics.from.Septermber %>%
+  mutate(pop.type="From Septermber 2020") %>% 
   mutate(prior.obs.required="No") %>% 
   mutate(pop=working.study.cohort) %>% 
   mutate(age_gr2="All")
@@ -1922,13 +2045,13 @@ pat.ch[[4]]<-Pop.summary.characteristics.with.history %>%
     mutate(prior.obs.required="Yes") %>% 
     mutate(pop=working.study.cohort) %>% 
     mutate(age_gr2="All")
-pat.ch[[5]]<-Pop.summary.characteristics.before.august.with.history %>%
-  mutate(pop.type="Before August 2020") %>% 
+pat.ch[[5]]<-Pop.summary.characteristics.before.Septermber.with.history %>%
+  mutate(pop.type="Before Septermber 2020") %>% 
   mutate(prior.obs.required="Yes") %>% 
   mutate(pop=working.study.cohort) %>% 
   mutate(age_gr2="All")
-pat.ch[[6]]<-Pop.summary.characteristics.from.august.with.history %>%
-  mutate(pop.type="From August 2020") %>% 
+pat.ch[[6]]<-Pop.summary.characteristics.from.Septermber.with.history %>%
+  mutate(pop.type="From Septermber 2020") %>% 
   mutate(prior.obs.required="Yes") %>% 
   mutate(pop=working.study.cohort) %>% 
   mutate(age_gr2="All")
