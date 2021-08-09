@@ -1,31 +1,4 @@
 
-# drop any exposure cohorts with less than 5 people -----
-exposure.cohorts<-exposure.cohorts %>% 
-  inner_join(exposure.cohorts_db %>% 
-               group_by(cohort_definition_id) %>% 
-               tally() %>% 
-               collect() %>% 
-               filter(n>5) %>% 
-               select(cohort_definition_id),
-             by=c("id"="cohort_definition_id"))  
-
-# drop any outcome cohorts with fewer than 50 people -----
-outcome.cohorts<-outcome.cohorts %>% 
-  inner_join(outcome.cohorts_db %>% 
-               group_by(cohort_definition_id) %>% 
-               tally() %>% 
-               collect() %>% 
-               filter(n>50) %>% 
-               select(cohort_definition_id),
-             by=c("id"="cohort_definition_id"))  
-# for full analysis
-outcome.cohorts<-outcome.cohorts %>% 
-  filter(name %in%
-           c("death",
-             "DVT narrow", "PE", "VTE narrow",
-             "MI", "isc stroke", "MI isc stroke", 
-             "all stroke" , "MACE"))
-
 # Initiate lists to store output ----
 Patient.characteristcis<-list() # to collect tables of characteristics
 Survival.summary<-list() # to collect cumulative incidence estimates
@@ -218,6 +191,7 @@ for(n in 1:length(drug.codes)){# add each to Pop
   working.code<-drug.codes[n]
   working.name<-drug.names[n]
   
+  if(cohortTableMedications_db %>% tally() %>% collect()>0 ){
   working.persons <- cohortTableMedications_db %>% 
     filter(drug_id==n) %>% 
     collect() %>% 
@@ -263,7 +237,14 @@ table(working.persons.on.index$working.drug.on.index,
 working.persons.on.index<-working.persons.on.index %>% 
   mutate(working.drug.on.index=ifelse(is.na(working.drug.before.index),
                                             "New user", "Prevalent user"))
-
+  } else {
+    
+    working.persons <- tibble()
+    working.persons.on.index <- tibble()
+  }
+  
+  
+  
 if(nrow(working.persons)>0){
     Pop<-Pop %>%
       left_join(working.persons,
@@ -474,7 +455,7 @@ for(j in 1:length(outcome.cohorts$id)){ # for each outcome of interest
   working.Pop<-Pop 
 
 # drop time-varying covariates, we will get them again for the index date of the event 
-  working.Pop<-working.Pop %>% 
+working.Pop<-working.Pop %>% 
     select(-c("age", "age_gr", "age_gr2", "age_gr3", "prior_obs_years","prior_obs_days",
            "cond.comp", "drug.comp", "cond.drug.comp")) %>% 
     select(-all_of(paste0(cond.names, ".all.history"))) %>% 
@@ -484,7 +465,7 @@ for(j in 1:length(outcome.cohorts$id)){ # for each outcome of interest
     select(-all_of(drug.names))
 
   # event of interest
-  if(working.outcome.name=="imm throm"){
+if(working.outcome.name=="imm throm"){
     # for imm throm, either this specific cohort based on diagnosis codes or HIT (which included drug eras)
     ids<-c(outcome.cohorts %>% 
              filter(name=="HIT") %>% 
@@ -746,7 +727,7 @@ for(n in 1:length(cond.codes)){# add each to Pop
                 by = "person_id") %>% 
       rename(!!paste0(working.name, ".all.history"):="working.cond.all.hist")
   } else {
-    Pop$working.cond.all.hist<-0
+    working.Pop$working.cond.all.hist<-0
     working.Pop<-working.Pop %>% 
       rename(!!paste0(working.name, ".all.history"):="working.cond.all.hist")
   }
@@ -789,7 +770,8 @@ working.Pop<-working.Pop %>%
 for(n in 1:length(drug.codes)){# add each to Pop
   working.code<-drug.codes[n]
   working.name<-drug.names[n]
-  
+
+  if(cohortTableMedications_db %>% tally() %>% collect()>0 ){  
   working.persons <- cohortTableMedications_db %>% 
     filter(drug_id==n) %>% 
     collect() %>% 
@@ -835,6 +817,11 @@ table(working.persons.on.index$working.drug.on.index,
 working.persons.on.index<-working.persons.on.index %>% 
   mutate(working.drug.on.index=ifelse(is.na(working.drug.before.index),
                                             "New user", "Prevalent user"))
+  } else {
+  working.persons<-tibble()
+    working.persons.on.index<-tibble()
+}
+
 
 if(nrow(working.persons)>0){
     working.Pop<-working.Pop %>%
@@ -1110,6 +1097,7 @@ working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.ou
   
   
 # cond.comp  
+  if( nrow(working.data %>% filter(cond.comp==1))>5 ){
   s<-summary(survfit(Surv(f_u.outcome.days, f_u.outcome) ~ cond.comp, 
                      data = working.data), times = working.times)
   working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.outcome.name,
@@ -1128,6 +1116,8 @@ working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.ou
     mutate(prior.obs.required=value.prior.obs.required)  %>% 
     mutate(pop=value.working.study.cohort)%>% 
     mutate(surv.type="KM")
+
+  
   if(mortality.captured==TRUE & working.outcome.name!="death"){
 s <- survfit(Surv(w.outcome_or_mortality.etime, 
                       w.outcome_or_mortality.event) ~cond.comp , 
@@ -1150,8 +1140,10 @@ working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.ou
     mutate(pop=value.working.study.cohort) %>% 
     mutate(surv.type="Competing risk")    
   }
+  }
   
   
+if( nrow(working.data %>% filter(drug.comp==1))>5 ){
   s<-summary(survfit(Surv(f_u.outcome.days, f_u.outcome) ~ drug.comp, 
                      data = working.data), times = working.times)
   working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.outcome.name,
@@ -1170,6 +1162,9 @@ working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.ou
     mutate(prior.obs.required=value.prior.obs.required)  %>% 
     mutate(pop=value.working.study.cohort)%>% 
     mutate(surv.type="KM")
+   
+  
+  
 if(mortality.captured==TRUE & working.outcome.name!="death"){
 s <- survfit(Surv(w.outcome_or_mortality.etime, 
                       w.outcome_or_mortality.event) ~drug.comp , 
@@ -1191,9 +1186,10 @@ working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.ou
     mutate(prior.obs.required=value.prior.obs.required)  %>% 
     mutate(pop=value.working.study.cohort) %>% 
     mutate(surv.type="Competing risk")    
-  }
+}
+}
   
-  
+if( nrow(working.data %>% filter(cond.drug.comp==1))>5 ){
   s<-summary(survfit(Surv(f_u.outcome.days, f_u.outcome) ~ cond.drug.comp, 
                      data = working.data), times = working.times)
   working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.outcome.name,
@@ -1235,7 +1231,7 @@ working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.ou
     mutate(surv.type="Competing risk")    
   }
   
-  
+}
   
   s<-summary(survfit(Surv(f_u.outcome.days, f_u.outcome) ~ age_gr+gender, 
                      data = working.data), times = working.times)
@@ -1514,7 +1510,7 @@ Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","No.p
                      value.working.outcome.name=working.outcome.name,
                      value.working.study.cohort=working.study.cohort)
 
-
+if(nrow(working.Pop %>% filter(prior_obs_years>=1)) >5 ) {
 Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","Prior.obs", ";", "pop.all")]]<-
   get.Surv.summaries(working.data=working.Pop %>% 
                        filter(prior_obs_years>=1),
@@ -1539,6 +1535,7 @@ Survival.summary[[paste0(working.study.cohort,";",working.outcome.name,";","Prio
                      value.working.outcome=working.outcome,
                      value.working.outcome.name=working.outcome.name,
                      value.working.study.cohort=working.study.cohort)
+}
 
 # modelling  ------
 
@@ -1915,7 +1912,8 @@ working.summary.exposures<- bind_rows(working.summary.exposures)
 
 row.names(working.summary.age)<-1:nrow(working.summary.age)
 row.names(working.summary.gender)<-1:nrow(working.summary.gender)
-row.names(working.summary.exposures)<-1:nrow(working.summary.exposures)
+if(nrow(working.summary.exposures)>0){ 
+row.names(working.summary.exposures)<-1:nrow(working.summary.exposures)}
 
 bind_rows(working.summary.age,
           working.summary.gender,

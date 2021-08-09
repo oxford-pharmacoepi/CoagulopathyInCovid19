@@ -1,9 +1,18 @@
 
 # instantiate exposure cohorts -----
-# these are the core cohorts
-# later on, will add locations etc
-cohort.sql<-list.files(here("Cohorts","ExposureCohorts"))
+
+
+cohort.sql<-list.files(here("Cohorts","ExposureCohorts", "sql"))
 cohort.sql<-cohort.sql[cohort.sql!="CreateCohortTable.sql"]
+
+if(run.outpatient==FALSE){
+cohort.sql<-cohort.sql[str_detect(cohort.sql, "hosp")]
+}
+
+if(run.hospitalised==FALSE){
+cohort.sql<-cohort.sql[str_detect(cohort.sql, "hosp", negate = TRUE)]
+}
+
 exposure.cohorts<-tibble(id=as.integer(1:length(cohort.sql)),
                         file=cohort.sql,
                         name=str_replace(cohort.sql, ".sql", ""))  
@@ -13,7 +22,7 @@ print(paste0("- Getting exposure cohorts"))
   
 conn <- connect(connectionDetails)
 # create empty cohorts table
-sql<-readSql(here("Cohorts","ExposureCohorts","CreateCohortTable.sql"))
+sql<-readSql(here("Cohorts","ExposureCohorts","sql","CreateCohortTable.sql"))
 sql<-SqlRender::translate(sql, targetDialect = targetDialect)
 renderTranslateExecuteSql(conn=conn, 
                             sql,
@@ -26,8 +35,9 @@ working.id<-exposure.cohorts$id[cohort.i]
 print(paste0("-- Getting: ",  exposure.cohorts$name[cohort.i],
                  " (", cohort.i, " of ", length(exposure.cohorts$name), ")"))
 
-sql<-readSql(here("Cohorts","ExposureCohorts",exposure.cohorts$file[cohort.i])) 
+sql<-readSql(here("Cohorts","ExposureCohorts","sql",exposure.cohorts$file[cohort.i])) 
 sql <- sub("BEGIN: Inclusion Impact Analysis - event.*END: Inclusion Impact Analysis - person", "", sql)
+
 sql<-SqlRender::translate(sql, targetDialect = targetDialect)
 renderTranslateExecuteSql(conn=conn, 
                               sql, 
@@ -45,19 +55,26 @@ disconnect(conn)
 exposure.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
                                         results_database_schema,".",
                                         cohortTableExposures)))
+
+
 # combined exposure cohorts
 study.cohorts<-exposure.cohorts_db %>% 
   collect()
 
-# diagnosis narrow or test positive
+# diagnosis narrow or pcr positive
 diag_narrow_pcr_test_positive <- study.cohorts %>% 
-  filter(cohort_definition_id %in% c(2, 3)) %>% 
+  filter(cohort_definition_id %in% 
+           c(exposure.cohorts %>% 
+  filter(name %in% 
+           c("COVID19 diagnosis narrow",
+             "COVID19 PCR positive test")) %>% 
+  select(id) %>% pull())) %>% 
   arrange(subject_id, cohort_start_date) %>% 
   group_by(subject_id) %>% 
   mutate(seq=1:length(subject_id)) %>% 
   filter(seq==1) %>% 
   select(-seq) %>% 
-  mutate(cohort_definition_id=5)
+  mutate(cohort_definition_id=max(exposure.cohorts$id)+1)
 
 conn <- connect(connectionDetails)
 insertTable(connection=conn,
@@ -76,7 +93,7 @@ rm(study.cohorts)
 }
 
 exposure.cohorts<-bind_rows(exposure.cohorts,
-                            tibble(id=as.integer(5),
+                            tibble(id=as.integer(max(exposure.cohorts$id)+1),
                                    file=NA,
                                    name="COVID19 diagnosis narrow or PCR positive test"))
 
@@ -85,6 +102,20 @@ exposure.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
                                         results_database_schema,".",
                                         cohortTableExposures))) %>% 
   mutate(cohort_definition_id=as.integer(cohort_definition_id)) 
+
+
+# drop any exposure cohorts with less than 5 people
+# exposure.cohorts_db %>% 
+#   group_by(cohort_definition_id) %>% tally()
+
+exposure.cohorts<-exposure.cohorts %>% 
+  inner_join(exposure.cohorts_db %>% 
+               group_by(cohort_definition_id) %>% 
+               tally() %>% 
+               collect() %>% 
+               filter(n>5) %>% 
+               select(cohort_definition_id),
+             by=c("id"="cohort_definition_id"))
 
 # instantiate outcome cohorts -----
 cohort.sql<-list.files(here("Cohorts","OutcomeCohorts"))
@@ -127,11 +158,32 @@ disconnect(conn)
   print(paste0("Skipping creating exposure cohorts")) 
 }
 
+
+
 # link to table
 outcome.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
                                         results_database_schema,".",
                                         cohortTableOutcomes)))%>% 
   mutate(cohort_definition_id=as.integer(cohort_definition_id)) 
+
+# drop any outcome cohorts with fewer than 5 people in database
+outcome.cohorts<-outcome.cohorts %>% 
+  inner_join(outcome.cohorts_db %>% 
+               group_by(cohort_definition_id) %>% 
+               tally() %>% 
+               collect() %>% 
+               filter(n>5) %>% 
+               select(cohort_definition_id),
+             by=c("id"="cohort_definition_id"))  
+# for full analysis
+outcome.cohorts<-outcome.cohorts %>% 
+  filter(name %in%
+           c("death",
+             "DVT narrow", "PE", "VTE narrow",
+             "MI", "isc stroke", "MI isc stroke", 
+             "all stroke" , "MACE"))
+
+
 # instantiate comorbidity cohorts ----
 # for those people that are in our exposure cohorts
 

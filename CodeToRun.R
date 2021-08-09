@@ -70,10 +70,17 @@ db.name<-"...."
 # Is mortality captured in your database?
 mortality.captured<-TRUE
 
+# which analyses to run? (set to FALSE to not run)
+# outpatient - general covid cohorts
+# hospitalised - hostpiatlised covid paitents
+run.outpatient<-TRUE
+run.hospitalised<-FALSE
+
 # if you have already created the cohorts, you can set these to FALSE to skip instantiating the cohorts again
 create.exposure.cohorts<-TRUE
 create.outcome.cohorts<-TRUE
 create.profile.cohorts<-TRUE
+
 
 # run the analysis ------
 start<-Sys.time()
