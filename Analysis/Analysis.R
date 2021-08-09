@@ -187,11 +187,12 @@ Pop<-Pop %>%
 # 2) on index date - new user, non-user, prevalent user
 
 # add each medication to pop
-for(n in 1:length(drug.codes)){# add each to Pop
+ for(n in 1:length(drug.codes)){# add each to Pop
+
   working.code<-drug.codes[n]
   working.name<-drug.names[n]
   
-  if(cohortTableMedications_db %>% tally() %>% collect()>0 ){
+  if(cohortTableMedications_db %>% filter(drug_id==n) %>% tally() %>% collect()>0 ){
   working.persons <- cohortTableMedications_db %>% 
     filter(drug_id==n) %>% 
     collect() %>% 
@@ -205,7 +206,7 @@ for(n in 1:length(drug.codes)){# add each to Pop
     mutate(working.drug=1) %>% 
     distinct()
   
-  
+   if(nrow(working.persons)>0 ){ 
 working.persons.before.index<- cohortTableMedications_db %>% 
     filter(drug_id==n) %>% 
     collect() %>% 
@@ -237,8 +238,7 @@ table(working.persons.on.index$working.drug.on.index,
 working.persons.on.index<-working.persons.on.index %>% 
   mutate(working.drug.on.index=ifelse(is.na(working.drug.before.index),
                                             "New user", "Prevalent user"))
-  } else {
-    
+  }} else {
     working.persons <- tibble()
     working.persons.on.index <- tibble()
   }
@@ -255,6 +255,7 @@ if(nrow(working.persons)>0){
     Pop<-Pop %>% 
       rename(!!working.name:="working.drug")
   }
+  
   
 if(nrow(working.persons.on.index)>0){
   Pop<-Pop %>%
@@ -771,7 +772,7 @@ for(n in 1:length(drug.codes)){# add each to Pop
   working.code<-drug.codes[n]
   working.name<-drug.names[n]
 
-  if(cohortTableMedications_db %>% tally() %>% collect()>0 ){  
+  if(cohortTableMedications_db %>% filter(drug_id==n) %>%  tally() %>% collect()>0 ){  
   working.persons <- cohortTableMedications_db %>% 
     filter(drug_id==n) %>% 
     collect() %>% 
@@ -785,7 +786,7 @@ for(n in 1:length(drug.codes)){# add each to Pop
     mutate(working.drug=1) %>% 
     distinct()
   
-  
+  if(nrow(working.persons)>0){
 working.persons.before.index<- cohortTableMedications_db %>% 
     filter(drug_id==n) %>% 
     collect() %>% 
@@ -817,7 +818,7 @@ table(working.persons.on.index$working.drug.on.index,
 working.persons.on.index<-working.persons.on.index %>% 
   mutate(working.drug.on.index=ifelse(is.na(working.drug.before.index),
                                             "New user", "Prevalent user"))
-  } else {
+  }} else {
   working.persons<-tibble()
     working.persons.on.index<-tibble()
 }
@@ -1000,6 +1001,8 @@ get.Surv.summaries<-function(working.data,
                              value.working.outcome.name,
                              value.working.study.cohort
                              ){
+  
+  if(nrow(working.data)>=5){
   # add to working.Survival.summary
   working.Survival.summary<-list()
   working.times<-seq(0,90)
@@ -1482,7 +1485,9 @@ working.Survival.summary[[paste0(value.working.study.cohort,";",value.working.ou
   }
  
   bind_rows(working.Survival.summary,.id = NULL)
-  
+  } else {
+    tibble()
+  }
   
 }
 

@@ -1497,6 +1497,7 @@
           {
             "Criteria": {
               "Measurement": {
+                "CodesetId": 3,
                 "OccurrenceStartDate": {
                   "Value": "2020-01-01",
                   "Extent": "2020-02-29",

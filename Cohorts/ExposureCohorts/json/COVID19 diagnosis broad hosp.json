@@ -581,28 +581,6 @@
           "Type": 2,
           "Count": 1
         }
-      },
-      {
-        "Criteria": {
-          "Observation": {
-            "CodesetId": 0
-          }
-        },
-        "StartWindow": {
-          "Start": {
-            "Days": 21,
-            "Coeff": -1
-          },
-          "End": {
-            "Days": 3,
-            "Coeff": 1
-          },
-          "UseEventEnd": false
-        },
-        "Occurrence": {
-          "Type": 2,
-          "Count": 1
-        }
       }
     ],
     "DemographicCriteriaList": [],
@@ -623,31 +601,6 @@
           {
             "Criteria": {
               "ConditionOccurrence": {
-                "CodesetId": 0,
-                "OccurrenceStartDate": {
-                  "Value": "2020-01-01",
-                  "Extent": "2020-02-29",
-                  "Op": "bt"
-                }
-              }
-            },
-            "StartWindow": {
-              "Start": {
-                "Coeff": -1
-              },
-              "End": {
-                "Coeff": 1
-              },
-              "UseEventEnd": false
-            },
-            "Occurrence": {
-              "Type": 0,
-              "Count": 0
-            }
-          },
-          {
-            "Criteria": {
-              "Observation": {
                 "CodesetId": 0,
                 "OccurrenceStartDate": {
                   "Value": "2020-01-01",

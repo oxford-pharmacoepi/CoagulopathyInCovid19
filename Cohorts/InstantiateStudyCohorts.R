@@ -62,6 +62,15 @@ study.cohorts<-exposure.cohorts_db %>%
   collect()
 
 # diagnosis narrow or pcr positive
+if(nrow(study.cohorts %>% 
+  filter(cohort_definition_id %in% 
+           c(exposure.cohorts %>% 
+  filter(name %in% 
+           c("COVID19 diagnosis narrow",
+             "COVID19 PCR positive test")) %>% 
+  select(id) %>% pull())) 
+  ) > 0 ){
+
 diag_narrow_pcr_test_positive <- study.cohorts %>% 
   filter(cohort_definition_id %in% 
            c(exposure.cohorts %>% 
@@ -85,7 +94,7 @@ insertTable(connection=conn,
             progressBar=TRUE)
 disconnect(conn)
 rm(study.cohorts)
-
+}
 
 
 } else {
@@ -105,7 +114,7 @@ exposure.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
 
 
 # drop any exposure cohorts with less than 5 people
-# exposure.cohorts_db %>% 
+# exposure.cohorts_db %>%
 #   group_by(cohort_definition_id) %>% tally()
 
 exposure.cohorts<-exposure.cohorts %>% 
@@ -116,6 +125,7 @@ exposure.cohorts<-exposure.cohorts %>%
                filter(n>5) %>% 
                select(cohort_definition_id),
              by=c("id"="cohort_definition_id"))
+# exposure.cohorts
 
 # instantiate outcome cohorts -----
 cohort.sql<-list.files(here("Cohorts","OutcomeCohorts"))
@@ -128,7 +138,7 @@ print(paste0("- Getting outcome cohorts"))
 
 conn <- connect(connectionDetails)
 # create empty cohorts table
-sql<-readSql(here("Cohorts","ExposureCohorts","CreateCohortTable.sql"))
+sql<-readSql(here("Cohorts","ExposureCohorts","sql","CreateCohortTable.sql"))
 sql<-SqlRender::translate(sql, targetDialect = targetDialect)
 renderTranslateExecuteSql(conn=conn, 
                           sql,

@@ -84,7 +84,7 @@ from
 (
   select m.* 
   FROM @cdm_database_schema.MEASUREMENT m
-
+JOIN #Codesets cs on (m.measurement_concept_id = cs.concept_id and cs.codeset_id = 3)
 ) C
 
 WHERE C.value_as_concept_id in (9191,45884084,4181412,45879438,45877985,4126681)
@@ -138,7 +138,7 @@ from
 (
   select m.* 
   FROM @cdm_database_schema.MEASUREMENT m
-
+JOIN #Codesets cs on (m.measurement_concept_id = cs.concept_id and cs.codeset_id = 3)
 ) C
 
 WHERE (C.measurement_date >= DATEFROMPARTS(2020, 1, 1) and C.measurement_date <= DATEFROMPARTS(2020, 2, 29))
