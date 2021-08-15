@@ -1,7 +1,5 @@
 
 # instantiate exposure cohorts -----
-
-
 cohort.sql<-list.files(here("Cohorts","ExposureCohorts", "sql"))
 cohort.sql<-cohort.sql[cohort.sql!="CreateCohortTable.sql"]
 
@@ -15,7 +13,11 @@ cohort.sql<-cohort.sql[str_detect(cohort.sql, "hosp", negate = TRUE)]
 
 exposure.cohorts<-tibble(id=as.integer(1:length(cohort.sql)),
                         file=cohort.sql,
-                        name=str_replace(cohort.sql, ".sql", ""))  
+                        name=str_replace(cohort.sql, ".sql", ""))
+
+if(run.as.test==TRUE){
+exposure.cohorts <-  head(exposure.cohorts, 1)
+}
 
 if(create.exposure.cohorts==TRUE){
 print(paste0("- Getting exposure cohorts"))
@@ -130,9 +132,22 @@ exposure.cohorts<-exposure.cohorts %>%
 # instantiate outcome cohorts -----
 cohort.sql<-list.files(here("Cohorts","OutcomeCohorts"))
 cohort.sql<-cohort.sql[cohort.sql!="CreateCohortTable.sql"]
+
+#  full analysis
+cohort.sql<-cohort.sql[str_detect(cohort.sql,
+           paste("death",
+             "DVT narrow", "PE", "VTE narrow",
+             "MI", "isc stroke", "MI isc stroke", 
+             "all stroke" , "MACE", sep="|"))]
+
 outcome.cohorts<-tibble(id=as.integer(1:length(cohort.sql)),
                          file=cohort.sql,
                          name=str_replace(cohort.sql, ".sql", "")) 
+
+if(run.as.test==TRUE){
+outcome.cohorts <-  head(outcome.cohorts, 1)
+}
+
 if(create.outcome.cohorts==TRUE){
 print(paste0("- Getting outcome cohorts"))
 
@@ -185,18 +200,10 @@ outcome.cohorts<-outcome.cohorts %>%
                filter(n>5) %>% 
                select(cohort_definition_id),
              by=c("id"="cohort_definition_id"))  
-# for full analysis
-outcome.cohorts<-outcome.cohorts %>% 
-  filter(name %in%
-           c("death",
-             "DVT narrow", "PE", "VTE narrow",
-             "MI", "isc stroke", "MI isc stroke", 
-             "all stroke" , "MACE"))
 
 
 # instantiate comorbidity cohorts ----
 # for those people that are in our exposure cohorts
-
 cond.codes<-c("434621", 
               "4098292", 
               "4125650",  
@@ -224,77 +231,62 @@ cond.names<-c("autoimmune_disease",
               "copd",
               "dementia")
 
+if(run.as.test==TRUE){
+cond.codes<-c("434621")
+cond.names<-c("autoimmune_disease")
+}
+
+
 if(create.profile.cohorts==TRUE){
 # add the concept ids of interest to the cohortTableProfiles table in the results 
 # schema in the cdm
 # these will be the code of interest and all of its descendants
-print(paste0("-- Getting codes for conditions"))
-conn<-connect(connectionDetails)
-# table with all the concept ids of interest (code and descendants)
-insertTable(connection=conn,
-            tableName=paste0(results_database_schema, ".",cohortTableComorbidities),
-            data=data.frame(condition_id=integer(), concept_id =integer()),
-            createTable = TRUE,
-            progressBar=FALSE)
-for(n in 1:length(cond.codes)){ # add codes for each condition
-  working.code<-cond.codes[n]
-  working.name<-cond.names[n]
-  sql<-paste0("INSERT INTO ", results_database_schema, ".",cohortTableComorbidities, " (condition_id, concept_id) SELECT DISTINCT ", n ,", descendant_concept_id FROM ", vocabulary_database_schema, ".concept_ancestor WHERE ancestor_concept_id IN (",working.code, ");")
-  suppressMessages(executeSql(conn, sql, progressBar = FALSE))
+print(paste0("-- Getting conditions"))
+
+# template sql
+
+conn <- connect(connectionDetails)
+# create empty cohorts table
+sql<-readSql(here("Cohorts","ExposureCohorts","sql","CreateCohortTable.sql"))
+sql<-SqlRender::translate(sql, targetDialect = targetDialect)
+renderTranslateExecuteSql(conn=conn, 
+                          sql,
+                          cohort_database_schema =  results_database_schema,
+                          cohort_table = cohortTableComorbidities)
+rm(sql)
+
+for(cohort.i in 1:length(cond.codes)){
+  
+  working.id<-cond.codes[cohort.i]
+  print(paste0("-- Getting: ",  cond.names[cohort.i],
+               " (", cohort.i, " of ", length(cond.names), ")"))
+  
+  sql<-readSql(here("Cohorts","ComorbidityCohorts","sql", "Condition_template.sql")) 
+  sql <- sub("BEGIN: Inclusion Impact Analysis - event.*END: Inclusion Impact Analysis - person", "", sql)
+  sql<-SqlRender::translate(sql, targetDialect = targetDialect)
+  renderTranslateExecuteSql(conn=conn, 
+                            sql, 
+                            cdm_database_schema = cdm_database_schema,
+                            Condition_top_code = cond.codes[cohort.i],
+                            vocabulary_database_schema = vocabulary_database_schema,
+                            target_database_schema = results_database_schema,
+                            target_cohort_table = cohortTableComorbidities,
+                            target_cohort_id = as.integer(working.id))  
 }
 disconnect(conn)
+} else {
+  print(paste0("Skipping creating comorbidity cohorts")) 
+}
 
-#link to table
+# link to table
 cohortTableComorbidities_db<-tbl(db, sql(paste0("SELECT * FROM ",
                                            results_database_schema,
-                                           ".", cohortTableComorbidities)))
-print(paste0("-- Getting conditions for study population"))
+                                           ".", cohortTableComorbidities)))%>% 
+  mutate(cohort_definition_id=as.integer(cohort_definition_id)) 
 
-#people with at least one of the conditions
-cond.persons <- condition_occurrence_db %>%
-  select(person_id, condition_concept_id, condition_start_date) %>% 
-  inner_join(cohortTableComorbidities_db ,
-             by=c("condition_concept_id"="concept_id"))
-# keep first record per condition group
-cond.persons <- cond.persons %>% 
-  select(person_id, condition_id, condition_start_date) %>% 
-  group_by(person_id, condition_id) %>% 
-  mutate(seq=row_number()) %>% 
-  filter(seq==1) %>% 
-  ungroup() %>% 
-  select(-seq)
-# keep if in at least one of the exposure cohorts
-cond.persons <- cond.persons %>% 
-  inner_join(exposure.cohorts_db %>% 
-               select(subject_id) %>% 
-               distinct() %>% 
-               rename("person_id"="subject_id"))
-cond.persons<-cond.persons %>% collect()
-
-# insert into db
-conn<-connect(connectionDetails)
-# drop table with codeses
-sql<-paste("drop table ", paste0(results_database_schema, ".",cohortTableComorbidities))
-sql<-SqlRender::translate(sql, targetDialect = targetDialect)
-renderTranslateExecuteSql(conn=conn,  sql)  
-# add cond.persons
-insertTable(connection=conn,
-            tableName=paste0(results_database_schema, ".",cohortTableComorbidities),
-            data=cond.persons,
-            createTable = TRUE,
-            progressBar=TRUE)
-disconnect(conn)
-} else {
-  print(paste0("Skipping creating profile cohorts")) 
-  
-  cohortTableComorbidities_db<-tbl(db, sql(paste0("SELECT * FROM ",
-                                                  results_database_schema,
-                                                  ".", cohortTableComorbidities)))
-  }
-# we now have a table summarising comorbidities
-# cohortTableComorbidities_db %>% 
-#   group_by(condition_id) %>% 
-#   tally()
+cohortTableComorbidities_db %>%
+  group_by(cohort_definition_id) %>%
+  tally()
 
 # instantiate medication cohorts ----
 # for those people that are in our exposure cohorts
@@ -319,68 +311,62 @@ drug.names<-c("antiinflamatory_and_antirheumatic",
               "sex_hormones_modulators",
               "immunoglobulins")
 
-if(create.profile.cohorts==TRUE){ 
-# add the concept ids of interest to the table in the results 
+
+if(run.as.test==TRUE){
+drug.codes<-c("21603933")
+drug.names<-c("antiinflamatory_and_antirheumatic")
+}
+
+
+
+
+if(create.profile.cohorts==TRUE){
+# add the concept ids of interest to the cohortTableProfiles table in the results 
 # schema in the cdm
 # these will be the code of interest and all of its descendants
-print(paste0("-- Getting codes for medications"))
-conn<-connect(connectionDetails)
-# table with all the concept ids of interest (code and descendants)
-insertTable(connection=conn,
-            tableName=paste0(results_database_schema, ".",cohortTableMedications),
-            data=data.frame(drug_id=integer(), concept_id =integer()),
-            createTable = TRUE,
-            progressBar=FALSE)
-for(n in 1:length(drug.codes)){ # add codes for each condition
-  working.code<-drug.codes[n]
-  working.name<-drug.names[n]
-  sql<-paste0("INSERT INTO ", results_database_schema, ".",cohortTableMedications, " (drug_id, concept_id) SELECT DISTINCT ", n ,", descendant_concept_id FROM ", vocabulary_database_schema, ".concept_ancestor WHERE ancestor_concept_id IN (",working.code, ");")
-  suppressMessages(executeSql(conn, sql, progressBar = FALSE))
-}
-disconnect(conn)
+print(paste0("-- Getting medications"))
 
-#link to table
-cohortTableMedications_db<-tbl(db, sql(paste0("SELECT * FROM ",
-                                                results_database_schema,
-                                                ".", cohortTableMedications)))
-print(paste0("-- Getting medications for study population"))
+# template sql
 
-#people with at least one of the medications with era that ended in 2019 at the latest 
-working.date<-as.Date(dmy(paste0("01-01-","2019")))
-drug.persons <- drug_era_db %>%
-  filter(drug_era_end_date>=working.date) %>% 
-  select(person_id, drug_concept_id, drug_era_start_date, drug_era_end_date) %>% 
-  inner_join(cohortTableMedications_db ,
-             by=c("drug_concept_id"="concept_id"))
-# keep if in at least one of the exposure cohorts
-drug.persons <- drug.persons %>% 
-  inner_join(exposure.cohorts_db %>% 
-               select(subject_id) %>% 
-               distinct() %>% 
-               rename("person_id"="subject_id"))
-drug.persons<-drug.persons %>% collect()
-
-# insert into db
-conn<-connect(connectionDetails)
-# drop table with codes
-sql<-paste("drop table ", paste0(results_database_schema, ".",cohortTableMedications))
+conn <- connect(connectionDetails)
+# create empty cohorts table
+sql<-readSql(here("Cohorts","ExposureCohorts","sql","CreateCohortTable.sql"))
 sql<-SqlRender::translate(sql, targetDialect = targetDialect)
-renderTranslateExecuteSql(conn=conn,  sql)  
-# add drug.persons
-drug.persons$drug_era_start_date<-as.Date(drug.persons$drug_era_start_date)
-drug.persons$drug_era_end_date<-as.Date(drug.persons$drug_era_end_date)
-insertTable(connection=conn,
-            tableName=paste0(results_database_schema, ".",cohortTableMedications),
-            data=drug.persons,
-            createTable = TRUE,
-            progressBar=TRUE)
+renderTranslateExecuteSql(conn=conn, 
+                          sql,
+                          cohort_database_schema =  results_database_schema,
+                          cohort_table = cohortTableMedications)
+rm(sql)
+
+for(cohort.i in 1:length(drug.codes)){
+  
+  working.id<-drug.codes[cohort.i] 
+  print(paste0("-- Getting: ",  drug.names[cohort.i],
+               " (", cohort.i, " of ", length(drug.codes), ")"))
+  
+  sql<-readSql(here("Cohorts","MedicationCohorts","sql", "Medication_template.sql")) 
+  sql <- sub("BEGIN: Inclusion Impact Analysis - event.*END: Inclusion Impact Analysis - person", "", sql)
+  sql<-SqlRender::translate(sql, targetDialect = targetDialect)
+  renderTranslateExecuteSql(conn=conn, 
+                            sql, 
+                            cdm_database_schema = cdm_database_schema,
+                            Medication_top_code = drug.codes[cohort.i],
+                            vocabulary_database_schema = vocabulary_database_schema,
+                            target_database_schema = results_database_schema,
+                            target_cohort_table = cohortTableMedications,
+                            target_cohort_id = as.integer(working.id))  
+}
 disconnect(conn)
 } else {
-  cohortTableMedications_db<-tbl(db, sql(paste0("SELECT * FROM ",
-                                                results_database_schema,
-                                                ".", cohortTableMedications)))
+  print(paste0("Skipping creating medication cohorts")) 
 }
-# # we now have a table summarising medications
-# cohortTableMedications_db%>%
-#   group_by(drug_id) %>%
+
+# link to table
+cohortTableMedications_db<-tbl(db, sql(paste0("SELECT * FROM ",
+                                           results_database_schema,
+                                           ".", cohortTableMedications)))%>% 
+  mutate(cohort_definition_id=as.integer(cohort_definition_id)) 
+
+# cohortTableMedications_db %>%
+#   group_by(cohort_definition_id) %>%
 #   tally()
