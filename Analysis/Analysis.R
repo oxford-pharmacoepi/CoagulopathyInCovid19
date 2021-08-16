@@ -105,7 +105,9 @@ Pop<-Pop %>%
   filter(!is.na(observation_period_end_date))
 
 # drop if death ocurred prior to index date -----
-deaths<-exposure.cohorts_db %>% 
+if(mortality.captured==TRUE){
+   
+   deaths<-exposure.cohorts_db %>% 
                filter(cohort_definition_id==working.study.cohort.id) %>% 
                select(subject_id) %>% 
                rename("person_id"="subject_id") %>% 
@@ -120,7 +122,7 @@ deaths.before.index<-Pop %>%
 Pop<-Pop %>% 
   anti_join(deaths.before.index)
 rm(deaths, deaths.before.index)
-
+ }
 
 # add prior observation time -----
 Pop<-Pop %>%  
@@ -1101,7 +1103,8 @@ r<-msprep(time = c(NA,
                      "f_u.outcome",
                      "death_status"),
           id="person_id",
-          data = as.data.frame(working.Pop),
+          data = as.data.frame(working.Pop %>% 
+                                 mutate(person_id=as.integer(person_id))),
           trans = tmat)
 events(r)
 

@@ -83,7 +83,7 @@ create.profile.cohorts<-TRUE
 
 
 # run the analysis ------
-run.as.test<-TRUE
+run.as.test<-FALSE
 
 start<-Sys.time()
 source(here("RunStudy.R"))

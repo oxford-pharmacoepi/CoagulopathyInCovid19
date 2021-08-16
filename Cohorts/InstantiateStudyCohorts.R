@@ -133,13 +133,6 @@ exposure.cohorts<-exposure.cohorts %>%
 cohort.sql<-list.files(here("Cohorts","OutcomeCohorts"))
 cohort.sql<-cohort.sql[cohort.sql!="CreateCohortTable.sql"]
 
-#  full analysis
-cohort.sql<-cohort.sql[str_detect(cohort.sql,
-           paste("death",
-             "DVT narrow", "PE", "VTE narrow",
-             "MI", "isc stroke", "MI isc stroke", 
-             "all stroke" , "MACE", sep="|"))]
-
 outcome.cohorts<-tibble(id=as.integer(1:length(cohort.sql)),
                          file=cohort.sql,
                          name=str_replace(cohort.sql, ".sql", "")) 
@@ -273,10 +266,31 @@ for(cohort.i in 1:length(cond.codes)){
                             target_cohort_table = cohortTableComorbidities,
                             target_cohort_id = as.integer(working.id))  
 }
+
+
+# smoking
+working.id<-"1111"
+print(paste0("-- Getting: smoking"))
+  
+  sql<-readSql(here("Cohorts","ComorbidityCohorts","sql", "smoking.sql")) 
+  sql <- sub("BEGIN: Inclusion Impact Analysis - event.*END: Inclusion Impact Analysis - person", "", sql)
+  sql<-SqlRender::translate(sql, targetDialect = targetDialect)
+  renderTranslateExecuteSql(conn=conn, 
+                            sql, 
+                            cdm_database_schema = cdm_database_schema,
+                            vocabulary_database_schema = vocabulary_database_schema,
+                            target_database_schema = results_database_schema,
+                            target_cohort_table = cohortTableComorbidities,
+                            target_cohort_id = as.integer(working.id))  
 disconnect(conn)
 } else {
   print(paste0("Skipping creating comorbidity cohorts")) 
 }
+
+# add smoking to list
+cond.codes<-c(cond.codes, "1111")
+cond.names<-c(cond.names,"smoking") 
+
 
 # link to table
 cohortTableComorbidities_db<-tbl(db, sql(paste0("SELECT * FROM ",
