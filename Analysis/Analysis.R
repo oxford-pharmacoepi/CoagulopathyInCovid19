@@ -2038,6 +2038,8 @@ working.summary.exposures[[9]]<-get.models.exposures("antiinflamatory_and_antirh
 working.summary.exposures[[10]]<-get.models.exposures("antithrombotic")
 working.summary.exposures[[11]]<-get.models.exposures("corticosteroids")
 working.summary.exposures[[12]]<-get.models.exposures("drug.comp") 
+
+working.summary.exposures[[13]]<-get.models.exposures("smoking.all.history")
 } else {
 working.summary.exposures[[1]]<-get.models.exposures("cond.comp")
 working.summary.exposures[[2]]<-get.models.exposures("drug.comp") 
