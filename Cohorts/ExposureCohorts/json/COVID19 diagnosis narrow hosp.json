@@ -442,65 +442,20 @@
       "PostDays": 0
     },
     "PrimaryCriteriaLimit": {
-      "Type": "First"
+      "Type": "All"
     }
   },
   "AdditionalCriteria": {
     "Type": "ALL",
-    "CriteriaList": [
-      {
-        "Criteria": {
-          "ConditionOccurrence": {
-            "CodesetId": 2
-          }
-        },
-        "StartWindow": {
-          "Start": {
-            "Days": 21,
-            "Coeff": -1
-          },
-          "End": {
-            "Days": 3,
-            "Coeff": 1
-          },
-          "UseEventEnd": false
-        },
-        "Occurrence": {
-          "Type": 2,
-          "Count": 1
-        }
-      },
-      {
-        "Criteria": {
-          "Observation": {
-            "CodesetId": 2
-          }
-        },
-        "StartWindow": {
-          "Start": {
-            "Days": 21,
-            "Coeff": -1
-          },
-          "End": {
-            "Days": 3,
-            "Coeff": 1
-          },
-          "UseEventEnd": false
-        },
-        "Occurrence": {
-          "Type": 2,
-          "Count": 1
-        }
-      }
-    ],
+    "CriteriaList": [],
     "DemographicCriteriaList": [],
     "Groups": []
   },
   "QualifiedLimit": {
-    "Type": "First"
+    "Type": "All"
   },
   "ExpressionLimit": {
-    "Type": "First"
+    "Type": "All"
   },
   "InclusionRules": [
     {
@@ -556,6 +511,60 @@
             "Occurrence": {
               "Type": 0,
               "Count": 0
+            }
+          }
+        ],
+        "DemographicCriteriaList": [],
+        "Groups": []
+      }
+    },
+    {
+      "name": "Covid diagnosis",
+      "expression": {
+        "Type": "ANY",
+        "CriteriaList": [
+          {
+            "Criteria": {
+              "ConditionOccurrence": {
+                "CodesetId": 2
+              }
+            },
+            "StartWindow": {
+              "Start": {
+                "Days": 21,
+                "Coeff": -1
+              },
+              "End": {
+                "Days": 3,
+                "Coeff": 1
+              },
+              "UseEventEnd": false
+            },
+            "Occurrence": {
+              "Type": 2,
+              "Count": 1
+            }
+          },
+          {
+            "Criteria": {
+              "Observation": {
+                "CodesetId": 2
+              }
+            },
+            "StartWindow": {
+              "Start": {
+                "Days": 21,
+                "Coeff": -1
+              },
+              "End": {
+                "Days": 3,
+                "Coeff": 1
+              },
+              "UseEventEnd": false
+            },
+            "Occurrence": {
+              "Type": 2,
+              "Count": 1
             }
           }
         ],

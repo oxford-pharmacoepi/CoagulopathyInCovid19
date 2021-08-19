@@ -107,20 +107,25 @@ Pop<-Pop %>%
 # drop if death ocurred prior to index date -----
 if(mortality.captured==TRUE){
    
-   deaths<-exposure.cohorts_db %>% 
+deaths<-exposure.cohorts_db %>% 
                filter(cohort_definition_id==working.study.cohort.id) %>% 
                select(subject_id) %>% 
                rename("person_id"="subject_id") %>% 
-  inner_join(death_db %>% select(person_id, death_date)) %>% 
+  inner_join(death_db   %>% select(person_id, death_date)) %>% 
   collect()
-
+   
+if(nrow(deaths)>0){ 
 deaths.before.index<-Pop %>% 
   select(person_id, cohort_start_date) %>% 
   inner_join(deaths) %>% 
   filter(death_date<cohort_start_date)
+}
 
+if(nrow(deaths.before.index)>0){ 
 Pop<-Pop %>% 
   anti_join(deaths.before.index)
+}
+
 rm(deaths, deaths.before.index)
  }
 
@@ -1102,9 +1107,10 @@ r<-msprep(time = c(NA,
           status = c(NA,
                      "f_u.outcome",
                      "death_status"),
-          id="person_id",
+          id="id",
+          keep="person_id",
           data = as.data.frame(working.Pop %>% 
-                                 mutate(person_id=as.integer(person_id))),
+                                 mutate(id=1:length(person_id))), # to make sure it is type that works with msprep 
           trans = tmat)
 events(r)
 
@@ -1928,7 +1934,7 @@ m.unadj.cr.1<-cph(as.formula(paste("Surv(time, status)~",{{var}})),
        data = working.r.1.data)
 m.unadj.cr.2<-cph(as.formula(paste("Surv(time, status)~",{{var}})),
        surv=TRUE,x=TRUE,y=TRUE,
-       data = r.2)
+       data = working.r.2.data)
 }
 m.adj<-cph(as.formula(paste("Surv(f_u.outcome.days, f_u.outcome)~",{{var}}, "+",  age.gender.f)),
        surv=TRUE,x=TRUE,y=TRUE,

@@ -554,35 +554,12 @@
       "PostDays": 0
     },
     "PrimaryCriteriaLimit": {
-      "Type": "First"
+      "Type": "All"
     }
   },
   "AdditionalCriteria": {
     "Type": "ALL",
-    "CriteriaList": [
-      {
-        "Criteria": {
-          "ConditionOccurrence": {
-            "CodesetId": 0
-          }
-        },
-        "StartWindow": {
-          "Start": {
-            "Days": 21,
-            "Coeff": -1
-          },
-          "End": {
-            "Days": 3,
-            "Coeff": 1
-          },
-          "UseEventEnd": false
-        },
-        "Occurrence": {
-          "Type": 2,
-          "Count": 1
-        }
-      }
-    ],
+    "CriteriaList": [],
     "DemographicCriteriaList": [],
     "Groups": []
   },
@@ -590,7 +567,7 @@
     "Type": "First"
   },
   "ExpressionLimit": {
-    "Type": "First"
+    "Type": "All"
   },
   "InclusionRules": [
     {
@@ -621,6 +598,37 @@
             "Occurrence": {
               "Type": 0,
               "Count": 0
+            }
+          }
+        ],
+        "DemographicCriteriaList": [],
+        "Groups": []
+      }
+    },
+    {
+      "name": "Dignosis around hospitalisation",
+      "expression": {
+        "Type": "ALL",
+        "CriteriaList": [
+          {
+            "Criteria": {
+              "ConditionOccurrence": {
+                "CodesetId": 0
+              }
+            },
+            "StartWindow": {
+              "Start": {
+                "Days": 21,
+                "Coeff": -1
+              },
+              "End": {
+                "Coeff": 1
+              },
+              "UseEventEnd": false
+            },
+            "Occurrence": {
+              "Type": 2,
+              "Count": 1
             }
           }
         ],
