@@ -142,7 +142,6 @@ for(n in 1:length(cond.codes)){# add each to Pop
   working.code<-cond.codes[n]
   working.name<-cond.names[n]
 
-  
 working.persons.all.history <- cohortTableComorbidities_db %>% 
   filter(cohort_definition_id==working.code) %>% 
     inner_join(exposure.cohorts_db %>% select(subject_id) %>% distinct(),
@@ -150,12 +149,16 @@ working.persons.all.history <- cohortTableComorbidities_db %>%
   rename("person_id"="subject_id") %>% 
   rename("condition_start_date"="cohort_start_date") %>%  
   select(person_id, condition_start_date) %>% 
-  collect() %>% 
+  collect() 
+if(nrow(working.persons.all.history)>0){
+working.persons.all.history <-  working.persons.all.history %>% 
   inner_join(Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
   filter(cohort_start_date>condition_start_date) %>% # before index date
   select(person_id) %>% 
   mutate(working.cond.all.hist=1)
+}
+
 
 working.persons.one.year <- cohortTableComorbidities_db %>% 
   filter(cohort_definition_id==working.code) %>% 
@@ -164,29 +167,36 @@ working.persons.one.year <- cohortTableComorbidities_db %>%
   rename("person_id"="subject_id") %>% 
   rename("condition_start_date"="cohort_start_date") %>% 
   select(person_id, condition_start_date) %>% 
-  collect() %>% 
+  collect()
+if(nrow(working.persons.one.year)>0){
+working.persons.one.year<-working.persons.one.year %>% 
   inner_join(Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
   filter(condition_start_date<(cohort_start_date) & 
         condition_start_date>=(cohort_start_date-years(1))) %>% 
   select(person_id) %>% 
   mutate(working.cond.one.year=1)
+}
 
-working.persons.30.days <- cohortTableComorbidities_db %>% 
+
+working.persons.30.days <- cohortTableComorbidities_db %>%
   filter(cohort_definition_id==working.code) %>% 
     inner_join(exposure.cohorts_db %>% select(subject_id) %>% distinct(),
                by = "subject_id") %>%
   rename("person_id"="subject_id") %>% 
   rename("condition_start_date"="cohort_start_date") %>% 
   select(person_id, condition_start_date) %>% 
-  collect() %>% 
+  collect()
+
+if(nrow(working.persons.30.days)>0){
+  working.persons.30.days<-working.persons.30.days %>% 
   inner_join(Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
   filter(condition_start_date<(cohort_start_date) & 
            condition_start_date>=(cohort_start_date-days(30))) %>% 
   select(person_id) %>% 
   mutate(working.cond.30.days=1)
-
+}
 
 if(nrow(working.persons.all.history)>0){
     Pop<-Pop %>%
@@ -234,13 +244,12 @@ Pop<-Pop %>%
 
 
 # add each medication to pop
- for(n in 1:length(drug.codes)){# add each to Pop
+for(n in 1:length(drug.codes)){# add each to Pop
 
-  working.code<-drug.codes[n]
-  working.name<-drug.names[n]
+working.code<-drug.codes[n]
+working.name<-drug.names[n]
   
-  if(cohortTableMedications_db %>% filter(cohort_definition_id==working.code) %>% tally() %>% collect()>0 ){
-  working.persons <- cohortTableMedications_db %>% 
+working.persons <- cohortTableMedications_db %>% 
   filter(cohort_definition_id==working.code) %>% 
     inner_join(exposure.cohorts_db %>% select(subject_id) %>% distinct(),
                by = "subject_id")%>%  
@@ -248,7 +257,12 @@ Pop<-Pop %>%
   rename("drug_era_start_date"="cohort_start_date")  %>% 
   rename("drug_era_end_date"="cohort_end_date") %>% 
   select(person_id, drug_era_start_date, drug_era_end_date) %>% 
-  collect() %>% 
+  collect()
+ 
+working.persons.on.index<-tibble() # will be updated below if we have people
+
+if(nrow(working.persons)>0){ 
+  working.persons<-working.persons  %>% 
     inner_join(Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
     filter((drug_era_start_date<=(cohort_start_date-days(4))
@@ -258,11 +272,7 @@ Pop<-Pop %>%
     select(person_id) %>% 
     mutate(working.drug=1) %>% 
     distinct()
-  
-   if(nrow(working.persons)>0 ){ 
-     
-     
-     
+
  working.prevalent<- cohortTableMedications_db %>% 
   filter(cohort_definition_id==working.code) %>% 
     inner_join(exposure.cohorts_db %>% select(subject_id) %>% distinct(),
@@ -307,11 +317,7 @@ table(working.persons.on.index$working.new,
 working.persons.on.index<-working.persons.on.index %>% 
   mutate(working.drug.on.index=ifelse(is.na(working.prevalent),
                                             "New user", "Prevalent user"))
-  }} else {
-    working.persons <- tibble()
-    working.persons.on.index <- tibble()
-  }
-  
+} 
   
   
 if(nrow(working.persons)>0){
@@ -779,12 +785,16 @@ for(n in 1:length(cond.codes)){# add each to Pop
   rename("person_id"="subject_id") %>% 
   rename("condition_start_date"="cohort_start_date") %>%  
   select(person_id, condition_start_date) %>% 
-    collect() %>% 
+    collect()
+  
+if(nrow(working.persons.all.history)>1){  
+  working.persons.all.history <-  working.persons.all.history %>% 
     inner_join(working.Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
     filter(cohort_start_date>condition_start_date) %>% # before index date
     select(person_id) %>% 
     mutate(working.cond.all.hist=1)
+}
   
   working.persons.one.year <-cohortTableComorbidities_db %>% 
   filter(cohort_definition_id==working.code) %>% 
@@ -793,28 +803,33 @@ for(n in 1:length(cond.codes)){# add each to Pop
   rename("person_id"="subject_id") %>% 
   rename("condition_start_date"="cohort_start_date") %>%  
   select(person_id, condition_start_date) %>%  
-    collect() %>% 
+    collect()
+if(nrow(working.persons.one.year)>1){    
+ working.persons.one.year<- working.persons.one.year %>% 
     inner_join(working.Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
     filter(condition_start_date<(cohort_start_date) & 
              condition_start_date>=(cohort_start_date-years(1))) %>% 
     select(person_id) %>% 
     mutate(working.cond.one.year=1)
+}
   
-  working.persons.30.days <- cohortTableComorbidities_db %>% 
+working.persons.30.days <- cohortTableComorbidities_db %>% 
   filter(cohort_definition_id==working.code) %>% 
     inner_join(exposure.cohorts_db %>% select(subject_id) %>% distinct(),
                by = "subject_id") %>%
   rename("person_id"="subject_id") %>% 
   rename("condition_start_date"="cohort_start_date") %>%  
   select(person_id, condition_start_date) %>%  
-    collect() %>% 
+    collect() 
+if(nrow(working.persons.30.days)>1){   
+    working.persons.30.days<-working.persons.30.days  %>% 
     inner_join(working.Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
     filter(condition_start_date<(cohort_start_date) & 
              condition_start_date>=(cohort_start_date-days(30))) %>% 
     select(person_id) %>% 
-    mutate(working.cond.30.days=1)
+    mutate(working.cond.30.days=1)}
   
   if(nrow(working.persons.all.history)>0){
     working.Pop<-working.Pop %>%
@@ -866,7 +881,6 @@ working.Pop<-working.Pop %>%
   working.code<-drug.codes[n]
   working.name<-drug.names[n]
   
-  if(cohortTableMedications_db %>% filter(cohort_definition_id==working.code) %>% tally() %>% collect()>0 ){
   working.persons <- cohortTableMedications_db %>% 
   filter(cohort_definition_id==working.code) %>% 
     inner_join(exposure.cohorts_db %>% select(subject_id) %>% distinct(),
@@ -875,7 +889,13 @@ working.Pop<-working.Pop %>%
   rename("drug_era_start_date"="cohort_start_date")  %>% 
   rename("drug_era_end_date"="cohort_end_date") %>% 
   select(person_id, drug_era_start_date, drug_era_end_date) %>% 
-  collect() %>% 
+  collect()
+  
+  working.persons.on.index<-tibble() # will be updated below if we have people
+
+  
+if(nrow(working.persons)>0){
+  working.persons <-  working.persons %>% 
     inner_join(working.Pop %>% select(person_id,cohort_start_date),
                by = "person_id") %>% 
     filter((drug_era_start_date<=(cohort_start_date-days(4))
@@ -886,7 +906,6 @@ working.Pop<-working.Pop %>%
     mutate(working.drug=1) %>% 
     distinct()
   
-   if(nrow(working.persons)>0 ){ 
  working.prevalent<- cohortTableMedications_db %>% 
   filter(cohort_definition_id==working.code) %>% 
     inner_join(exposure.cohorts_db %>% select(subject_id) %>% distinct(),
@@ -931,7 +950,7 @@ table(working.persons.on.index$working.new,
 working.persons.on.index<-working.persons.on.index %>% 
   mutate(working.drug.on.index=ifelse(is.na(working.prevalent),
                                             "New user", "Prevalent user"))
-  }} else {
+  } else {
     working.persons <- tibble()
     working.persons.on.index <- tibble()
   }
