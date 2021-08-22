@@ -1,291 +1,1601 @@
-CREATE TABLE #Codesets (
-  codeset_id int NOT NULL,
-  concept_id bigint NOT NULL
-)
-;
-
-INSERT INTO #Codesets (codeset_id, concept_id)
-SELECT 2 as codeset_id, c.concept_id FROM (select distinct I.concept_id FROM
-( 
-  select concept_id from @vocabulary_database_schema.CONCEPT where concept_id in (262,9201)
-UNION  select c.concept_id
-  from @vocabulary_database_schema.CONCEPT c
-  join @vocabulary_database_schema.CONCEPT_ANCESTOR ca on c.concept_id = ca.descendant_concept_id
-  and ca.ancestor_concept_id in (262,9201)
-  and c.invalid_reason is null
-
-) I
-) C UNION ALL 
-SELECT 3 as codeset_id, c.concept_id FROM (select distinct I.concept_id FROM
-( 
-  select concept_id from @vocabulary_database_schema.CONCEPT where concept_id in (40218804,36659749,40218805,44789510,44811805,45770687,44807536,3667069,36660491,36659667,36660329,36660364,742224,700360,742219,742218,36661384,36661375,36661376,705104,705105,37310257,756055,586310,704991,756029,586307,705107,704976,586309,756065,702834,704992,705001,705000,756085,586308,705106,704975,756084,704993,706164,723477,706167,706157,706155,715272,757678,706161,586524,586525,36661378,586520,706175,706156,706154,723469,706168,723478,723464,586516,723471,723470,706160,706173,586528,586529,715262,706158,706169,723476,586526,757677,706163,36661377,715260,715261,723463,706170,723467,723468,723465,586519,723466,586517,757685,706172,706171,706166,586523,586518,706174,706159,706165,723472)
-
-) I
-) C
-;
-
-with primary_events (event_id, person_id, start_date, end_date, op_start_date, op_end_date, visit_occurrence_id) as
-(
--- Begin Primary Events
-select P.ordinal as event_id, P.person_id, P.start_date, P.end_date, op_start_date, op_end_date, cast(P.visit_occurrence_id as bigint) as visit_occurrence_id
-FROM
-(
-  select E.person_id, E.start_date, E.end_date,
-         row_number() OVER (PARTITION BY E.person_id ORDER BY E.sort_date ASC) ordinal,
-         OP.observation_period_start_date as op_start_date, OP.observation_period_end_date as op_end_date, cast(E.visit_occurrence_id as bigint) as visit_occurrence_id
-  FROM 
-  (
-  -- Begin Visit Occurrence Criteria
-select C.person_id, C.visit_occurrence_id as event_id, C.visit_start_date as start_date, C.visit_end_date as end_date,
-       C.visit_occurrence_id, C.visit_start_date as sort_date
-from 
-(
-  select vo.* 
-  FROM @cdm_database_schema.VISIT_OCCURRENCE vo
-JOIN #Codesets cs on (vo.visit_concept_id = cs.concept_id and cs.codeset_id = 2)
-) C
-
-WHERE C.visit_start_date >= DATEFROMPARTS(2020, 3, 1)
--- End Visit Occurrence Criteria
-
-  ) E
-	JOIN @cdm_database_schema.observation_period OP on E.person_id = OP.person_id and E.start_date >=  OP.observation_period_start_date and E.start_date <= op.observation_period_end_date
-  WHERE DATEADD(day,0,OP.OBSERVATION_PERIOD_START_DATE) <= E.START_DATE AND DATEADD(day,0,E.START_DATE) <= OP.OBSERVATION_PERIOD_END_DATE
-) P
-WHERE P.ordinal = 1
--- End Primary Events
-
-)
-SELECT event_id, person_id, start_date, end_date, op_start_date, op_end_date, visit_occurrence_id
-INTO #qualified_events
-FROM 
-(
-  select pe.event_id, pe.person_id, pe.start_date, pe.end_date, pe.op_start_date, pe.op_end_date, row_number() over (partition by pe.person_id order by pe.start_date ASC) as ordinal, cast(pe.visit_occurrence_id as bigint) as visit_occurrence_id
-  FROM primary_events pe
-  
-JOIN (
--- Begin Criteria Group
-select 0 as index_id, person_id, event_id
-FROM
-(
-  select E.person_id, E.event_id 
-  FROM primary_events E
-  INNER JOIN
-  (
-    -- Begin Correlated Criteria
-select 0 as index_id, cc.person_id, cc.event_id
-from (SELECT p.person_id, p.event_id 
-FROM primary_events P
-JOIN (
-  -- Begin Measurement Criteria
-select C.person_id, C.measurement_id as event_id, C.measurement_date as start_date, DATEADD(d,1,C.measurement_date) as END_DATE,
-       C.visit_occurrence_id, C.measurement_date as sort_date
-from 
-(
-  select m.* 
-  FROM @cdm_database_schema.MEASUREMENT m
-JOIN #Codesets cs on (m.measurement_concept_id = cs.concept_id and cs.codeset_id = 3)
-) C
-
-WHERE C.value_as_concept_id in (9191,45884084,4181412,45879438,45877985,4126681)
--- End Measurement Criteria
-
-) A on A.person_id = P.person_id  AND A.START_DATE >= P.OP_START_DATE AND A.START_DATE <= P.OP_END_DATE AND A.START_DATE >= DATEADD(day,-21,P.START_DATE) AND A.START_DATE <= DATEADD(day,3,P.START_DATE) ) cc 
-GROUP BY cc.person_id, cc.event_id
-HAVING COUNT(cc.event_id) >= 1
--- End Correlated Criteria
-
-  ) CQ on E.person_id = CQ.person_id and E.event_id = CQ.event_id
-  GROUP BY E.person_id, E.event_id
-  HAVING COUNT(index_id) = 1
-) G
--- End Criteria Group
-) AC on AC.person_id = pe.person_id and AC.event_id = pe.event_id
-
-) QE
-WHERE QE.ordinal = 1
-;
-
---- Inclusion Rule Inserts
-
-select 0 as inclusion_rule_id, person_id, event_id
-INTO #Inclusion_0
-FROM 
-(
-  select pe.person_id, pe.event_id
-  FROM #qualified_events pe
-  
-JOIN (
--- Begin Criteria Group
-select 0 as index_id, person_id, event_id
-FROM
-(
-  select E.person_id, E.event_id 
-  FROM #qualified_events E
-  INNER JOIN
-  (
-    -- Begin Correlated Criteria
-select 0 as index_id, p.person_id, p.event_id
-from #qualified_events p
-LEFT JOIN (
-SELECT p.person_id, p.event_id 
-FROM #qualified_events P
-JOIN (
-  -- Begin Measurement Criteria
-select C.person_id, C.measurement_id as event_id, C.measurement_date as start_date, DATEADD(d,1,C.measurement_date) as END_DATE,
-       C.visit_occurrence_id, C.measurement_date as sort_date
-from 
-(
-  select m.* 
-  FROM @cdm_database_schema.MEASUREMENT m
-JOIN #Codesets cs on (m.measurement_concept_id = cs.concept_id and cs.codeset_id = 3)
-) C
-
-WHERE (C.measurement_date >= DATEFROMPARTS(2020, 1, 1) and C.measurement_date <= DATEFROMPARTS(2020, 2, 29))
-AND C.value_as_concept_id in (9191,45884084,45879438,4181412,4126681,45877985)
--- End Measurement Criteria
-
-) A on A.person_id = P.person_id  AND A.START_DATE >= P.OP_START_DATE AND A.START_DATE <= P.OP_END_DATE AND A.START_DATE >= P.OP_START_DATE AND A.START_DATE <= P.OP_END_DATE ) cc on p.person_id = cc.person_id and p.event_id = cc.event_id
-GROUP BY p.person_id, p.event_id
-HAVING COUNT(cc.event_id) = 0
--- End Correlated Criteria
-
-  ) CQ on E.person_id = CQ.person_id and E.event_id = CQ.event_id
-  GROUP BY E.person_id, E.event_id
-  HAVING COUNT(index_id) = 1
-) G
--- End Criteria Group
-) AC on AC.person_id = pe.person_id AND AC.event_id = pe.event_id
-) Results
-;
-
-SELECT inclusion_rule_id, person_id, event_id
-INTO #inclusion_events
-FROM (select inclusion_rule_id, person_id, event_id from #Inclusion_0) I;
-TRUNCATE TABLE #Inclusion_0;
-DROP TABLE #Inclusion_0;
-
-
-with cteIncludedEvents(event_id, person_id, start_date, end_date, op_start_date, op_end_date, ordinal) as
-(
-  SELECT event_id, person_id, start_date, end_date, op_start_date, op_end_date, row_number() over (partition by person_id order by start_date ASC) as ordinal
-  from
-  (
-    select Q.event_id, Q.person_id, Q.start_date, Q.end_date, Q.op_start_date, Q.op_end_date, SUM(coalesce(POWER(cast(2 as bigint), I.inclusion_rule_id), 0)) as inclusion_rule_mask
-    from #qualified_events Q
-    LEFT JOIN #inclusion_events I on I.person_id = Q.person_id and I.event_id = Q.event_id
-    GROUP BY Q.event_id, Q.person_id, Q.start_date, Q.end_date, Q.op_start_date, Q.op_end_date
-  ) MG -- matching groups
-
-  -- the matching group with all bits set ( POWER(2,# of inclusion rules) - 1 = inclusion_rule_mask
-  WHERE (MG.inclusion_rule_mask = POWER(cast(2 as bigint),1)-1)
-
-)
-select event_id, person_id, start_date, end_date, op_start_date, op_end_date
-into #included_events
-FROM cteIncludedEvents Results
-WHERE Results.ordinal = 1
-;
-
-
-
--- generate cohort periods into #final_cohort
-with cohort_ends (event_id, person_id, end_date) as
-(
-	-- cohort exit dates
-  -- By default, cohort exit at the event's op end date
-select event_id, person_id, op_end_date as end_date from #included_events
-),
-first_ends (person_id, start_date, end_date) as
-(
-	select F.person_id, F.start_date, F.end_date
-	FROM (
-	  select I.event_id, I.person_id, I.start_date, E.end_date, row_number() over (partition by I.person_id, I.event_id order by E.end_date) as ordinal 
-	  from #included_events I
-	  join cohort_ends E on I.event_id = E.event_id and I.person_id = E.person_id and E.end_date >= I.start_date
-	) F
-	WHERE F.ordinal = 1
-)
-select person_id, start_date, end_date
-INTO #cohort_rows
-from first_ends;
-
-with cteEndDates (person_id, end_date) AS -- the magic
-(	
-	SELECT
-		person_id
-		, DATEADD(day,-1 * 0, event_date)  as end_date
-	FROM
-	(
-		SELECT
-			person_id
-			, event_date
-			, event_type
-			, MAX(start_ordinal) OVER (PARTITION BY person_id ORDER BY event_date, event_type ROWS UNBOUNDED PRECEDING) AS start_ordinal 
-			, ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY event_date, event_type) AS overall_ord
-		FROM
-		(
-			SELECT
-				person_id
-				, start_date AS event_date
-				, -1 AS event_type
-				, ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY start_date) AS start_ordinal
-			FROM #cohort_rows
-		
-			UNION ALL
-		
-
-			SELECT
-				person_id
-				, DATEADD(day,0,end_date) as end_date
-				, 1 AS event_type
-				, NULL
-			FROM #cohort_rows
-		) RAWDATA
-	) e
-	WHERE (2 * e.start_ordinal) - e.overall_ord = 0
-),
-cteEnds (person_id, start_date, end_date) AS
-(
-	SELECT
-		 c.person_id
-		, c.start_date
-		, MIN(e.end_date) AS end_date
-	FROM #cohort_rows c
-	JOIN cteEndDates e ON c.person_id = e.person_id AND e.end_date >= c.start_date
-	GROUP BY c.person_id, c.start_date
-)
-select person_id, min(start_date) as start_date, end_date
-into #final_cohort
-from cteEnds
-group by person_id, end_date
-;
-
-DELETE FROM @target_database_schema.@target_cohort_table where cohort_definition_id = @target_cohort_id;
-INSERT INTO @target_database_schema.@target_cohort_table (cohort_definition_id, subject_id, cohort_start_date, cohort_end_date)
-select @target_cohort_id as cohort_definition_id, person_id, start_date, end_date 
-FROM #final_cohort CO
-;
-
-
-
-
-
-
-TRUNCATE TABLE #cohort_rows;
-DROP TABLE #cohort_rows;
-
-TRUNCATE TABLE #final_cohort;
-DROP TABLE #final_cohort;
-
-TRUNCATE TABLE #inclusion_events;
-DROP TABLE #inclusion_events;
-
-TRUNCATE TABLE #qualified_events;
-DROP TABLE #qualified_events;
-
-TRUNCATE TABLE #included_events;
-DROP TABLE #included_events;
-
-TRUNCATE TABLE #Codesets;
-DROP TABLE #Codesets;
+{
+  "ConceptSets": [
+    {
+      "id": 2,
+      "name": "Hospitalisation",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Visit",
+              "CONCEPT_CODE": "ERIP",
+              "CONCEPT_ID": 262,
+              "CONCEPT_NAME": "Emergency Room and Inpatient Visit",
+              "DOMAIN_ID": "Visit",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "Visit"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Visit",
+              "CONCEPT_CODE": "IP",
+              "CONCEPT_ID": 9201,
+              "CONCEPT_NAME": "Inpatient Visit",
+              "DOMAIN_ID": "Visit",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "Visit"
+            },
+            "includeDescendants": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "name": "COVID test, excl antibody",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "HCPCS",
+              "CONCEPT_CODE": "U0002",
+              "CONCEPT_ID": 40218804,
+              "CONCEPT_NAME": "2019-ncov coronavirus, sars-cov-2/2019-ncov (covid-19), any technique, multiple types or subtypes (includes all targets), non-cdc",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "HCPCS"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94616-0",
+              "CONCEPT_ID": 36659749,
+              "CONCEPT_NAME": "Bovine coronavirus RNA [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "HCPCS",
+              "CONCEPT_CODE": "U0001",
+              "CONCEPT_ID": 40218805,
+              "CONCEPT_NAME": "Cdc 2019 novel coronavirus (2019-ncov) real-time rt-pcr diagnostic panel",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "HCPCS"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Procedure",
+              "CONCEPT_CODE": "204351000000100",
+              "CONCEPT_ID": 44789510,
+              "CONCEPT_NAME": "Coronavirus nucleic acid detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Procedure",
+              "CONCEPT_CODE": "906711000000107",
+              "CONCEPT_ID": 44811805,
+              "CONCEPT_NAME": "Coronavirus nucleic acid detection assay",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Procedure",
+              "CONCEPT_CODE": "933791000000101",
+              "CONCEPT_ID": 45770687,
+              "CONCEPT_NAME": "Coronavirus RNA (ribonucleic acid) detection assay",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Procedure",
+              "CONCEPT_CODE": "817111000000102",
+              "CONCEPT_ID": 44807536,
+              "CONCEPT_NAME": "Coronavirus RNA (ribonucleic acid) measurement by NAAT (nucleic acid amplification test)",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Observable Entity",
+              "CONCEPT_CODE": "871560001",
+              "CONCEPT_ID": 3667069,
+              "CONCEPT_NAME": "Detection of ribonucleic acid of Severe acute respiratory syndrome coronavirus 2 using polymerase chain reaction",
+              "DOMAIN_ID": "Observation",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94479-3",
+              "CONCEPT_ID": 36660491,
+              "CONCEPT_NAME": "Human coronavirus 229E RNA [Presence] in Lower respiratory specimen by NAA with non-probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94480-1",
+              "CONCEPT_ID": 36659667,
+              "CONCEPT_NAME": "Human coronavirus HKU1 RNA [Presence] in Lower respiratory specimen by NAA with non-probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94481-9",
+              "CONCEPT_ID": 36660329,
+              "CONCEPT_NAME": "Human coronavirus NL63 RNA [Presence] in Lower respiratory specimen by NAA with non-probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94482-7",
+              "CONCEPT_ID": 36660364,
+              "CONCEPT_NAME": "Human coronavirus OC43 RNA [Presence] in Lower respiratory specimen by NAA with non-probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "CPT4",
+              "CONCEPT_CODE": "87426",
+              "CONCEPT_ID": 742224,
+              "CONCEPT_NAME": "Infectious agent antigen detection by immunoassay technique, qualitative or semiquantitative, multiple-step method; severe acute respiratory syndrome coronavirus (eg, SARS-CoV, SARS-CoV-2 [COVID-19]) (Coronavirus disease [COVID-19])",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "CPT4"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "CPT4",
+              "CONCEPT_CODE": "87635",
+              "CONCEPT_ID": 700360,
+              "CONCEPT_NAME": "Infectious agent detection by nucleic acid (DNA or RNA); severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) (Coronavirus disease [COVID-19]), amplified probe technique",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "CPT4"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "CPT4",
+              "CONCEPT_CODE": "0223U",
+              "CONCEPT_ID": 742219,
+              "CONCEPT_NAME": "Infectious disease (bacterial or viral respiratory tract infection), pathogen-specific nucleic acid (DNA or RNA), 22 targets including severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2), qualitative RT-PCR, nasopharyngeal swab",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "CPT4"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "CPT4",
+              "CONCEPT_CODE": "0202U",
+              "CONCEPT_ID": 742218,
+              "CONCEPT_NAME": "Infectious disease (bacterial or viral respiratory tract infection), pathogen-specific nucleic acid (DNA or RNA), 22 targets including severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2), qualitative RT-PCR, nasopharyngeal swab",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "CPT4"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95380-2",
+              "CONCEPT_ID": 36661384,
+              "CONCEPT_NAME": "Influenza virus A and B and SARS-CoV-2 (COVID-19) and SARS-related CoV RNA panel - Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95423-0",
+              "CONCEPT_ID": 36661375,
+              "CONCEPT_NAME": "Influenza virus A and B and SARS-CoV-2 (COVID-19) identified in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95422-2",
+              "CONCEPT_ID": 36661376,
+              "CONCEPT_NAME": "Influenza virus A and B RNA and SARS-CoV-2 (COVID-19) N gene panel - Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912990",
+              "CONCEPT_ID": 705104,
+              "CONCEPT_NAME": "Measurement of Coronavirus (Coronavirinae subfamily species)",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912991",
+              "CONCEPT_ID": 705105,
+              "CONCEPT_NAME": "Measurement of Coronavirus (Coronavirinae subfamily species) antigen",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Procedure",
+              "CONCEPT_CODE": "1240471000000102",
+              "CONCEPT_ID": 37310257,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 antigen",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4873969",
+              "CONCEPT_ID": 756055,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2)",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912985",
+              "CONCEPT_ID": 586310,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) Genetic material using Molecular method",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912972",
+              "CONCEPT_ID": 704991,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) in Blood",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4873967",
+              "CONCEPT_ID": 756029,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) in Respiratory specimen",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912984",
+              "CONCEPT_ID": 586307,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) in Saliva",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912993",
+              "CONCEPT_ID": 705107,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) in Sample from nose",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP5040512",
+              "CONCEPT_ID": 704976,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) in Sample from oropharynx",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912986",
+              "CONCEPT_ID": 586309,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) in Specified specimen",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4873966",
+              "CONCEPT_ID": 756065,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) in Unspecified specimen",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP5032061",
+              "CONCEPT_ID": 702834,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) specific cell-mediated immune response in Blood",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912974",
+              "CONCEPT_ID": 704992,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Culture method",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912982",
+              "CONCEPT_ID": 705001,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Nucleic acid amplification technique",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912973",
+              "CONCEPT_ID": 705000,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Nucleic acid amplification technique in Blood",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4873965",
+              "CONCEPT_ID": 756085,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Nucleic acid amplification technique in Respiratory specimen",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912983",
+              "CONCEPT_ID": 586308,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Nucleic acid amplification technique in Saliva",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912992",
+              "CONCEPT_ID": 705106,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Nucleic acid amplification technique in Sample from nose",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP5040511",
+              "CONCEPT_ID": 704975,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Nucleic acid amplification technique in Sample from oropharynx",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4873968",
+              "CONCEPT_ID": 756084,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Nucleic acid amplification technique in Unspecified specimen",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "OMOP4912975",
+              "CONCEPT_ID": 704993,
+              "CONCEPT_NAME": "Measurement of Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) using Sequencing",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "OMOP Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94501-4",
+              "CONCEPT_ID": 706164,
+              "CONCEPT_NAME": "Middle East respiratory syndrome coronavirus (MERS-CoV) RNA [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94558-4",
+              "CONCEPT_ID": 723477,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) Ag [Presence] in Respiratory specimen by Rapid immunoassay",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94510-5",
+              "CONCEPT_ID": 706167,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94311-8",
+              "CONCEPT_ID": 706157,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Cycle Threshold #] in Unspecified specimen by Nucleic acid amplification using CDC primer-probe set N1",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94312-6",
+              "CONCEPT_ID": 706155,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Cycle Threshold #] in Unspecified specimen by Nucleic acid amplification using CDC primer-probe set N2",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94760-6",
+              "CONCEPT_ID": 715272,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Nasopharynx by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95409-9",
+              "CONCEPT_ID": 757678,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Nose by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94533-7",
+              "CONCEPT_ID": 706161,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94756-4",
+              "CONCEPT_ID": 586524,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Respiratory specimen by Nucleic acid amplification using CDC primer-probe set N1",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94757-2",
+              "CONCEPT_ID": 586525,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Respiratory specimen by Nucleic acid amplification using CDC primer-probe set N2",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95425-5",
+              "CONCEPT_ID": 36661378,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Saliva (oral fluid) by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94766-3",
+              "CONCEPT_ID": 586520,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Serum or Plasma by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94316-7",
+              "CONCEPT_ID": 706175,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94307-6",
+              "CONCEPT_ID": 706156,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Unspecified specimen by Nucleic acid amplification using CDC primer-probe set N1",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94308-4",
+              "CONCEPT_ID": 706154,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) N gene [Presence] in Unspecified specimen by Nucleic acid amplification using CDC primer-probe set N2",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94644-2",
+              "CONCEPT_ID": 723469,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) ORF1ab region [Cycle Threshold #] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94511-3",
+              "CONCEPT_ID": 706168,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) ORF1ab region [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94559-2",
+              "CONCEPT_ID": 723478,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) ORF1ab region [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94639-2",
+              "CONCEPT_ID": 723464,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) ORF1ab region [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94763-0",
+              "CONCEPT_ID": 586516,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) [Presence] in Unspecified specimen by Organism specific culture",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94646-7",
+              "CONCEPT_ID": 723471,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RdRp gene [Cycle Threshold #] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94645-9",
+              "CONCEPT_ID": 723470,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RdRp gene [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94534-5",
+              "CONCEPT_ID": 706160,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RdRp gene [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94314-2",
+              "CONCEPT_ID": 706173,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RdRp gene [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94745-7",
+              "CONCEPT_ID": 586528,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Cycle Threshold #] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94746-5",
+              "CONCEPT_ID": 586529,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94819-0",
+              "CONCEPT_ID": 715262,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Log #/volume] (viral load) in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94531-1",
+              "CONCEPT_ID": 706158,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA panel - Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94306-8",
+              "CONCEPT_ID": 706169,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA panel - Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94565-9",
+              "CONCEPT_ID": 723476,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Nasopharynx by NAA with non-probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94759-8",
+              "CONCEPT_ID": 586526,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Nasopharynx by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95406-5",
+              "CONCEPT_ID": 757677,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Nose by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94500-6",
+              "CONCEPT_ID": 706163,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95424-8",
+              "CONCEPT_ID": 36661377,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Respiratory specimen by Sequencing",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94845-5",
+              "CONCEPT_ID": 715260,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Saliva (oral fluid) by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94822-4",
+              "CONCEPT_ID": 715261,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Saliva (oral fluid) by Sequencing",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94660-8",
+              "CONCEPT_ID": 723463,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Serum or Plasma by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94309-2",
+              "CONCEPT_ID": 706170,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) RNA [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94642-6",
+              "CONCEPT_ID": 723467,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) S gene [Cycle Threshold #] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94643-4",
+              "CONCEPT_ID": 723468,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) S gene [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94640-0",
+              "CONCEPT_ID": 723465,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) S gene [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94767-1",
+              "CONCEPT_ID": 586519,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) S gene [Presence] in Serum or Plasma by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94641-8",
+              "CONCEPT_ID": 723466,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) S gene [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94764-8",
+              "CONCEPT_ID": 586517,
+              "CONCEPT_NAME": "SARS-CoV-2 (COVID-19) whole genome [Nucleotide sequence] in Isolate by Sequencing",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "95209-3",
+              "CONCEPT_ID": 757685,
+              "CONCEPT_NAME": "SARS-CoV+SARS-CoV-2 (COVID-19) Ag [Presence] in Respiratory specimen by Rapid immunoassay",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94313-4",
+              "CONCEPT_ID": 706172,
+              "CONCEPT_NAME": "SARS-like coronavirus N gene [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94310-0",
+              "CONCEPT_ID": 706171,
+              "CONCEPT_NAME": "SARS-like coronavirus N gene [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94509-7",
+              "CONCEPT_ID": 706166,
+              "CONCEPT_NAME": "SARS-related coronavirus E gene [Cycle Threshold #] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94758-0",
+              "CONCEPT_ID": 586523,
+              "CONCEPT_NAME": "SARS-related coronavirus E gene [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94765-5",
+              "CONCEPT_ID": 586518,
+              "CONCEPT_NAME": "SARS-related coronavirus E gene [Presence] in Serum or Plasma by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94315-9",
+              "CONCEPT_ID": 706174,
+              "CONCEPT_NAME": "SARS-related coronavirus E gene [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94532-9",
+              "CONCEPT_ID": 706159,
+              "CONCEPT_NAME": "SARS-related coronavirus+MERS coronavirus RNA [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94502-2",
+              "CONCEPT_ID": 706165,
+              "CONCEPT_NAME": "SARS-related coronavirus RNA [Presence] in Respiratory specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "94647-5",
+              "CONCEPT_ID": 723472,
+              "CONCEPT_NAME": "SARS-related coronavirus RNA [Presence] in Unspecified specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "PrimaryCriteria": {
+    "CriteriaList": [
+      {
+        "VisitOccurrence": {
+          "CodesetId": 2,
+          "OccurrenceStartDate": {
+            "Value": "2020-03-01",
+            "Op": "gte"
+          }
+        }
+      }
+    ],
+    "ObservationWindow": {
+      "PriorDays": 0,
+      "PostDays": 0
+    },
+    "PrimaryCriteriaLimit": {
+      "Type": "All"
+    }
+  },
+  "AdditionalCriteria": {
+    "Type": "ALL",
+    "CriteriaList": [],
+    "DemographicCriteriaList": [],
+    "Groups": []
+  },
+  "QualifiedLimit": {
+    "Type": "All"
+  },
+  "ExpressionLimit": {
+    "Type": "All"
+  },
+  "InclusionRules": [
+    {
+      "name": "No PCR positive test between 1st Jan to 1st March 2020",
+      "expression": {
+        "Type": "ALL",
+        "CriteriaList": [
+          {
+            "Criteria": {
+              "Measurement": {
+                "CodesetId": 3,
+                "OccurrenceStartDate": {
+                  "Value": "2020-01-01",
+                  "Extent": "2020-02-29",
+                  "Op": "bt"
+                },
+                "ValueAsConcept": [
+                  {
+                    "CONCEPT_CODE": "10828004",
+                    "CONCEPT_ID": 9191,
+                    "CONCEPT_NAME": "Positive",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "SNOMED"
+                  },
+                  {
+                    "CONCEPT_CODE": "LA6576-8",
+                    "CONCEPT_ID": 45884084,
+                    "CONCEPT_NAME": "Positive",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "LOINC"
+                  },
+                  {
+                    "CONCEPT_CODE": "LA9633-4",
+                    "CONCEPT_ID": 45879438,
+                    "CONCEPT_NAME": "Present",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "LOINC"
+                  },
+                  {
+                    "CONCEPT_CODE": "52101004",
+                    "CONCEPT_ID": 4181412,
+                    "CONCEPT_NAME": "Present",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "SNOMED"
+                  },
+                  {
+                    "CONCEPT_CODE": "260373001",
+                    "CONCEPT_ID": 4126681,
+                    "CONCEPT_NAME": "Detected",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "SNOMED"
+                  },
+                  {
+                    "CONCEPT_CODE": "LA11882-0",
+                    "CONCEPT_ID": 45877985,
+                    "CONCEPT_NAME": "Detected",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "LOINC"
+                  }
+                ]
+              }
+            },
+            "StartWindow": {
+              "Start": {
+                "Coeff": -1
+              },
+              "End": {
+                "Days": 1,
+                "Coeff": -1
+              },
+              "UseEventEnd": false
+            },
+            "Occurrence": {
+              "Type": 0,
+              "Count": 0
+            }
+          }
+        ],
+        "DemographicCriteriaList": [],
+        "Groups": []
+      }
+    },
+    {
+      "name": "COVID test",
+      "expression": {
+        "Type": "ALL",
+        "CriteriaList": [
+          {
+            "Criteria": {
+              "Measurement": {
+                "CodesetId": 3,
+                "ValueAsConcept": [
+                  {
+                    "CONCEPT_CODE": "10828004",
+                    "CONCEPT_ID": 9191,
+                    "CONCEPT_NAME": "Positive",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "SNOMED"
+                  },
+                  {
+                    "CONCEPT_CODE": "LA6576-8",
+                    "CONCEPT_ID": 45884084,
+                    "CONCEPT_NAME": "Positive",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "LOINC"
+                  },
+                  {
+                    "CONCEPT_CODE": "52101004",
+                    "CONCEPT_ID": 4181412,
+                    "CONCEPT_NAME": "Present",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "SNOMED"
+                  },
+                  {
+                    "CONCEPT_CODE": "LA9633-4",
+                    "CONCEPT_ID": 45879438,
+                    "CONCEPT_NAME": "Present",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "LOINC"
+                  },
+                  {
+                    "CONCEPT_CODE": "LA11882-0",
+                    "CONCEPT_ID": 45877985,
+                    "CONCEPT_NAME": "Detected",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "LOINC"
+                  },
+                  {
+                    "CONCEPT_CODE": "260373001",
+                    "CONCEPT_ID": 4126681,
+                    "CONCEPT_NAME": "Detected",
+                    "DOMAIN_ID": "Meas Value",
+                    "INVALID_REASON_CAPTION": "Unknown",
+                    "STANDARD_CONCEPT_CAPTION": "Unknown",
+                    "VOCABULARY_ID": "SNOMED"
+                  }
+                ]
+              }
+            },
+            "StartWindow": {
+              "Start": {
+                "Days": 21,
+                "Coeff": -1
+              },
+              "End": {
+                "Days": 3,
+                "Coeff": 1
+              },
+              "UseEventEnd": false
+            },
+            "Occurrence": {
+              "Type": 2,
+              "Count": 1
+            }
+          }
+        ],
+        "DemographicCriteriaList": [],
+        "Groups": []
+      }
+    }
+  ],
+  "CensoringCriteria": [],
+  "CollapseSettings": {
+    "CollapseType": "ERA",
+    "EraPad": 0
+  },
+  "CensorWindow": {},
+  "cdmVersionRange": ">=5.0.0"
+}

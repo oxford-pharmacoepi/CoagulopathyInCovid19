@@ -59,93 +59,93 @@ exposure.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",
                                         cohortTableExposures)))
 
 
-# combined exposure cohorts
-study.cohorts<-exposure.cohorts_db %>% 
-  collect()
-
-# diagnosis narrow or pcr positive
-if(nrow(study.cohorts %>% 
-  filter(cohort_definition_id %in% 
-           c(exposure.cohorts %>% 
-  filter(name %in% 
-           c("COVID19 diagnosis narrow",
-             "COVID19 PCR positive test")) %>% 
-  select(id) %>% pull())) 
-  ) > 0 ){
-
-diag_narrow_pcr_test_positive <- study.cohorts %>% 
-  filter(cohort_definition_id %in% 
-           c(exposure.cohorts %>% 
-  filter(name %in% 
-           c("COVID19 diagnosis narrow",
-             "COVID19 PCR positive test")) %>% 
-  select(id) %>% pull())) %>% 
-  arrange(subject_id, cohort_start_date) %>% 
-  group_by(subject_id) %>% 
-  mutate(seq=1:length(subject_id)) %>% 
-  filter(seq==1) %>% 
-  select(-seq) %>% 
-  mutate(cohort_definition_id=max(exposure.cohorts$id)+1)
-
-conn <- connect(connectionDetails)
-insertTable(connection=conn,
-            tableName=paste0(results_database_schema, ".",cohortTableExposures),
-            data=diag_narrow_pcr_test_positive,
-            dropTableIfExists=FALSE,
-            createTable = FALSE,
-            progressBar=TRUE)
-disconnect(conn)
-}
-
-
-# diagnosis narrow or pcr positive
-if(nrow(study.cohorts %>% 
-  filter(cohort_definition_id %in% 
-           c(exposure.cohorts %>% 
-  filter(name %in% 
-           c("COVID19 diagnosis narrow hosp",
-             "COVID19 PCR positive test hosp")) %>% 
-  select(id) %>% pull())) 
-  ) > 0 ){
-
-diag_narrow_pcr_test_positive.hosp <- study.cohorts %>% 
-  filter(cohort_definition_id %in% 
-           c(exposure.cohorts %>% 
-  filter(name %in% 
-           c("COVID19 diagnosis narrow hosp",
-             "COVID19 PCR positive test hosp")) %>% 
-  select(id) %>% pull())) %>% 
-  arrange(subject_id, cohort_start_date) %>% 
-  group_by(subject_id) %>% 
-  mutate(seq=1:length(subject_id)) %>% 
-  filter(seq==1) %>% 
-  select(-seq) %>% 
-  mutate(cohort_definition_id=max(exposure.cohorts$id)+2)
-
-conn <- connect(connectionDetails)
-insertTable(connection=conn,
-            tableName=paste0(results_database_schema, ".",cohortTableExposures),
-            data=diag_narrow_pcr_test_positive.hosp,
-            dropTableIfExists=FALSE,
-            createTable = FALSE,
-            progressBar=TRUE)
-disconnect(conn)
-}
+# # combined exposure cohorts
+# study.cohorts<-exposure.cohorts_db %>% 
+#   collect()
+# 
+# # diagnosis narrow or pcr positive
+# if(nrow(study.cohorts %>% 
+#   filter(cohort_definition_id %in% 
+#            c(exposure.cohorts %>% 
+#   filter(name %in% 
+#            c("COVID19 diagnosis narrow",
+#              "COVID19 PCR positive test")) %>% 
+#   select(id) %>% pull())) 
+#   ) > 0 ){
+# 
+# diag_narrow_pcr_test_positive <- study.cohorts %>% 
+#   filter(cohort_definition_id %in% 
+#            c(exposure.cohorts %>% 
+#   filter(name %in% 
+#            c("COVID19 diagnosis narrow",
+#              "COVID19 PCR positive test")) %>% 
+#   select(id) %>% pull())) %>% 
+#   arrange(subject_id, cohort_start_date) %>% 
+#   group_by(subject_id) %>% 
+#   mutate(seq=1:length(subject_id)) %>% 
+#   filter(seq==1) %>% 
+#   select(-seq) %>% 
+#   mutate(cohort_definition_id=max(exposure.cohorts$id)+1)
+# 
+# conn <- connect(connectionDetails)
+# insertTable(connection=conn,
+#             tableName=paste0(results_database_schema, ".",cohortTableExposures),
+#             data=diag_narrow_pcr_test_positive,
+#             dropTableIfExists=FALSE,
+#             createTable = FALSE,
+#             progressBar=TRUE)
+# disconnect(conn)
+# }
+# 
+# 
+# # diagnosis narrow or pcr positive
+# if(nrow(study.cohorts %>% 
+#   filter(cohort_definition_id %in% 
+#            c(exposure.cohorts %>% 
+#   filter(name %in% 
+#            c("COVID19 diagnosis narrow hosp",
+#              "COVID19 PCR positive test hosp")) %>% 
+#   select(id) %>% pull())) 
+#   ) > 0 ){
+# 
+# diag_narrow_pcr_test_positive.hosp <- study.cohorts %>% 
+#   filter(cohort_definition_id %in% 
+#            c(exposure.cohorts %>% 
+#   filter(name %in% 
+#            c("COVID19 diagnosis narrow hosp",
+#              "COVID19 PCR positive test hosp")) %>% 
+#   select(id) %>% pull())) %>% 
+#   arrange(subject_id, cohort_start_date) %>% 
+#   group_by(subject_id) %>% 
+#   mutate(seq=1:length(subject_id)) %>% 
+#   filter(seq==1) %>% 
+#   select(-seq) %>% 
+#   mutate(cohort_definition_id=max(exposure.cohorts$id)+2)
+# 
+# conn <- connect(connectionDetails)
+# insertTable(connection=conn,
+#             tableName=paste0(results_database_schema, ".",cohortTableExposures),
+#             data=diag_narrow_pcr_test_positive.hosp,
+#             dropTableIfExists=FALSE,
+#             createTable = FALSE,
+#             progressBar=TRUE)
+# disconnect(conn)
+# }
 
 
 } else {
   print(paste0("Skipping creating exposure cohorts")) 
 }
 
-exposure.cohorts<-bind_rows(exposure.cohorts,
-                            tibble(id=as.integer(max(exposure.cohorts$id)+1),
-                                   file=NA,
-                                   name="COVID19 diagnosis narrow or PCR positive test"))
-
-exposure.cohorts<-bind_rows(exposure.cohorts,
-                            tibble(id=as.integer(max(exposure.cohorts$id)+2),
-                                   file=NA,
-                                   name="COVID19 diagnosis narrow or PCR positive test hosp"))
+# exposure.cohorts<-bind_rows(exposure.cohorts,
+#                             tibble(id=as.integer(max(exposure.cohorts$id)+1),
+#                                    file=NA,
+#                                    name="COVID19 diagnosis narrow or PCR positive test"))
+# 
+# exposure.cohorts<-bind_rows(exposure.cohorts,
+#                             tibble(id=as.integer(max(exposure.cohorts$id)+2),
+#                                    file=NA,
+#                                    name="COVID19 diagnosis narrow or PCR positive test hosp"))
 
 # link to table
 exposure.cohorts_db<-tbl(db, sql(paste0("SELECT * FROM ",

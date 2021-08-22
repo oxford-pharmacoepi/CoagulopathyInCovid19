@@ -45,6 +45,11 @@ death_db<-tbl(db, sql(paste0("SELECT * FROM ",
 # instantiate study cohorts ----
 source(here("Cohorts","InstantiateStudyCohorts.R"))
 
+# get database end date -----
+db.end.date<-observation_period_db %>% 
+    summarise(max(observation_period_end_date, na.rm=TRUE)) %>% 
+    collect() %>%  pull()
+
 # Run analysis ----
 source(here("Analysis","Analysis.R"))
 
@@ -69,6 +74,10 @@ save(Survival.summary,
      file = paste0(output.folder, "/Survival.summary_", db.name, ".RData"))
 save(Model.estimates, 
      file = paste0(output.folder, "/Model.estimates_", db.name, ".RData"))
+save(Cohort.entry.plot.data, 
+     file = paste0(output.folder, "/Cohort.entry.plot.data_", db.name, ".RData"))
+save(Cohort.age.plot.data, 
+     file = paste0(output.folder, "/Cohort.age.plot.data_", db.name, ".RData"))
 
 # # zip results
 print("Zipping results to output folder")
@@ -78,7 +87,9 @@ zipName <- paste0(output.folder, "/OutputToShare_", db.name, ".zip")
 
 files<-c(paste0(output.folder, "/Patient.characteristcis_", db.name, ".RData"),
          paste0(output.folder, "/Survival.summary_", db.name, ".RData"),
-         paste0(output.folder, "/Model.estimates_", db.name, ".RData")  )
+         paste0(output.folder, "/Model.estimates_", db.name, ".RData"),
+         paste0(output.folder, "/Cohort.entry.plot.data_", db.name, ".RData") ,
+         paste0(output.folder, "/Cohort.age.plot.data_", db.name, ".RData")   )
 files <- files[file.exists(files)==TRUE]
 createZipFile(zipFile = zipName,
               rootFolder=output.folder,

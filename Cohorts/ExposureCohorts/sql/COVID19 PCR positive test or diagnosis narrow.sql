@@ -7,7 +7,18 @@ CREATE TABLE #Codesets (
 INSERT INTO #Codesets (codeset_id, concept_id)
 SELECT 1 as codeset_id, c.concept_id FROM (select distinct I.concept_id FROM
 ( 
-  select concept_id from @vocabulary_database_schema.CONCEPT where concept_id in (40218804,36659749,40218805,44789510,44811805,45770687,44807536,3667069,36660491,36659667,36660329,36660364,742224,700360,742219,742218,36661384,36661375,36661376,705104,705105,37310257,756055,586310,704991,756029,586307,705107,704976,586309,756065,702834,704992,705001,705000,756085,586308,705106,704975,756084,704993,706164,723477,706167,706157,706155,715272,757678,706161,586524,586525,36661378,586520,706175,706156,706154,723469,706168,723478,723464,586516,723471,723470,706160,706173,586528,586529,715262,706158,706169,723476,586526,757677,706163,36661377,715260,715261,723463,706170,723467,723468,723465,586519,723466,586517,757685,706172,706171,706166,586523,586518,706174,706159,706165,723472)
+  select concept_id from @vocabulary_database_schema.CONCEPT where concept_id in (44789510)
+UNION  select c.concept_id
+  from @vocabulary_database_schema.CONCEPT c
+  join @vocabulary_database_schema.CONCEPT_ANCESTOR ca on c.concept_id = ca.descendant_concept_id
+  and ca.ancestor_concept_id in (44789510)
+  and c.invalid_reason is null
+
+) I
+) C UNION ALL 
+SELECT 2 as codeset_id, c.concept_id FROM (select distinct I.concept_id FROM
+( 
+  select concept_id from @vocabulary_database_schema.CONCEPT where concept_id in (3661405,3655976,3661748,3661406,3662381,756031,3656667,3656668,37311061,3656669,37310284,3661885,37310283,37310286,3663281,3661631,37310287,37310254,704995,700297,704996,700296,3661408,756039,3655977,3655975,3661632)
 
 ) I
 ) C
@@ -37,6 +48,34 @@ JOIN #Codesets cs on (m.measurement_concept_id = cs.concept_id and cs.codeset_id
 WHERE C.measurement_date >= DATEFROMPARTS(2020, 3, 1)
 AND C.value_as_concept_id in (9191,4126681,4181412,45879438,45884084,45877985)
 -- End Measurement Criteria
+
+UNION ALL
+-- Begin Condition Occurrence Criteria
+SELECT C.person_id, C.condition_occurrence_id as event_id, C.condition_start_date as start_date, COALESCE(C.condition_end_date, DATEADD(day,1,C.condition_start_date)) as end_date,
+  C.visit_occurrence_id, C.condition_start_date as sort_date
+FROM 
+(
+  SELECT co.* 
+  FROM @cdm_database_schema.CONDITION_OCCURRENCE co
+  JOIN #Codesets cs on (co.condition_concept_id = cs.concept_id and cs.codeset_id = 2)
+) C
+
+WHERE C.condition_start_date >= DATEFROMPARTS(2020, 3, 1)
+-- End Condition Occurrence Criteria
+
+UNION ALL
+-- Begin Observation Criteria
+select C.person_id, C.observation_id as event_id, C.observation_date as start_date, DATEADD(d,1,C.observation_date) as END_DATE,
+       C.visit_occurrence_id, C.observation_date as sort_date
+from 
+(
+  select o.* 
+  FROM @cdm_database_schema.OBSERVATION o
+JOIN #Codesets cs on (o.observation_concept_id = cs.concept_id and cs.codeset_id = 2)
+) C
+
+WHERE C.observation_date >= DATEFROMPARTS(2020, 3, 1)
+-- End Observation Criteria
 
   ) E
 	JOIN @cdm_database_schema.observation_period OP on E.person_id = OP.person_id and E.start_date >=  OP.observation_period_start_date and E.start_date <= op.observation_period_end_date
@@ -101,9 +140,61 @@ GROUP BY p.person_id, p.event_id
 HAVING COUNT(cc.event_id) = 0
 -- End Correlated Criteria
 
+UNION ALL
+-- Begin Correlated Criteria
+select 1 as index_id, p.person_id, p.event_id
+from #qualified_events p
+LEFT JOIN (
+SELECT p.person_id, p.event_id 
+FROM #qualified_events P
+JOIN (
+  -- Begin Condition Occurrence Criteria
+SELECT C.person_id, C.condition_occurrence_id as event_id, C.condition_start_date as start_date, COALESCE(C.condition_end_date, DATEADD(day,1,C.condition_start_date)) as end_date,
+  C.visit_occurrence_id, C.condition_start_date as sort_date
+FROM 
+(
+  SELECT co.* 
+  FROM @cdm_database_schema.CONDITION_OCCURRENCE co
+  JOIN #Codesets cs on (co.condition_concept_id = cs.concept_id and cs.codeset_id = 2)
+) C
+
+WHERE (C.condition_start_date >= DATEFROMPARTS(2020, 1, 1) and C.condition_start_date <= DATEFROMPARTS(2020, 2, 29))
+-- End Condition Occurrence Criteria
+
+) A on A.person_id = P.person_id  AND A.START_DATE >= P.OP_START_DATE AND A.START_DATE <= P.OP_END_DATE AND A.START_DATE >= P.OP_START_DATE AND A.START_DATE <= DATEADD(day,1,P.START_DATE) ) cc on p.person_id = cc.person_id and p.event_id = cc.event_id
+GROUP BY p.person_id, p.event_id
+HAVING COUNT(cc.event_id) = 0
+-- End Correlated Criteria
+
+UNION ALL
+-- Begin Correlated Criteria
+select 2 as index_id, p.person_id, p.event_id
+from #qualified_events p
+LEFT JOIN (
+SELECT p.person_id, p.event_id 
+FROM #qualified_events P
+JOIN (
+  -- Begin Observation Criteria
+select C.person_id, C.observation_id as event_id, C.observation_date as start_date, DATEADD(d,1,C.observation_date) as END_DATE,
+       C.visit_occurrence_id, C.observation_date as sort_date
+from 
+(
+  select o.* 
+  FROM @cdm_database_schema.OBSERVATION o
+JOIN #Codesets cs on (o.observation_concept_id = cs.concept_id and cs.codeset_id = 2)
+) C
+
+WHERE (C.observation_date >= DATEFROMPARTS(2020, 1, 1) and C.observation_date <= DATEFROMPARTS(2020, 2, 29))
+-- End Observation Criteria
+
+) A on A.person_id = P.person_id  AND A.START_DATE >= P.OP_START_DATE AND A.START_DATE <= P.OP_END_DATE AND A.START_DATE >= P.OP_START_DATE AND A.START_DATE <= DATEADD(day,1,P.START_DATE) ) cc on p.person_id = cc.person_id and p.event_id = cc.event_id
+GROUP BY p.person_id, p.event_id
+HAVING COUNT(cc.event_id) = 0
+-- End Correlated Criteria
+
   ) CQ on E.person_id = CQ.person_id and E.event_id = CQ.event_id
   GROUP BY E.person_id, E.event_id
-  HAVING COUNT(index_id) = 1
+  HAVING COUNT(index_id) = 3
 ) G
 -- End Criteria Group
 ) AC on AC.person_id = pe.person_id AND AC.event_id = pe.event_id
